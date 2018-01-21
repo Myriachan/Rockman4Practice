@@ -55,22 +55,76 @@ incbin "zeros8kb.bin"
 
 // Copy the second half of Rockman's sprite block twice.
 // Each one gets different sprites replaced.
-// Copy Rockman's main sprite block as the first 2 KB.
-incbin "Rockman 4 - Aratanaru Yabou!! (Japan).nes", $10, $800
+incbin "Rockman 4 - Aratanaru Yabou!! (Japan).nes", $10 + $400, $400
+incbin "Rockman 4 - Aratanaru Yabou!! (Japan).nes", $10 + $400, $400
 
 
-// Convenient constants.
-define sprite_tile_0 $60
-define sprite_tile_1 $61
-define sprite_tile_2 $62
-define sprite_tile_3 $63
-define sprite_tile_4 $64
-define sprite_tile_5 $65
-define sprite_tile_6 $66
-define sprite_tile_7 $67
-define sprite_tile_8 $68
-define sprite_tile_9 $69
-define sprite_tile_apostrophe $6A
+{savepc}
+// Replace certain tiles above with number sprites.
+//
+// We have two copies, because boss kills and deaths need the explosion
+// animation, and screen transitions potentially need the climbing animation.
+//
+// In both cases, the sprites for Rockman shooting from a ladder and for the
+// two small weapon refills are never necessary, for 7 sprites.
+
+// Screen transition version:
+// 4C -> apostrophe: Replace Rockman's face for shooting from a ladder.
+{reorg $40, $6000 + (($4C - $40) * $10)}
+incbin "numbersprites.bin", 12 * $10, $10
+// 5A, 5B, 6A, 6B -> 0, 1, 2, 3: Replace Rockman's body for shooting from a ladder.
+{reorg $40, $6000 + (($5A - $40) * $10)}
+incbin "numbersprites.bin", 0 * $10, $10
+{reorg $40, $6000 + (($5B - $40) * $10)}
+incbin "numbersprites.bin", 1 * $10, $10
+{reorg $40, $6000 + (($6A - $40) * $10)}
+incbin "numbersprites.bin", 2 * $10, $10
+{reorg $40, $6000 + (($6B - $40) * $10)}
+incbin "numbersprites.bin", 3 * $10, $10
+// 7E, 7F -> 4, 5: Replace small weapon refills.
+{reorg $40, $6000 + (($7E - $40) * $10)}
+incbin "numbersprites.bin", 4 * $10, $10
+{reorg $40, $6000 + (($7F - $40) * $10)}
+incbin "numbersprites.bin", 5 * $10, $10
+// 60, 61, 62, 63 -> 6, 7, 8, 9: Replace explosion animation.
+{reorg $40, $6000 + (($60 - $40) * $10)}
+incbin "numbersprites.bin", 6 * $10, $10
+{reorg $40, $6000 + (($61 - $40) * $10)}
+incbin "numbersprites.bin", 7 * $10, $10
+{reorg $40, $6000 + (($62 - $40) * $10)}
+incbin "numbersprites.bin", 8 * $10, $10
+{reorg $40, $6000 + (($63 - $40) * $10)}
+incbin "numbersprites.bin", 9 * $10, $10
+
+// Boss kill, death animation version:
+// 4C -> apostrophe: Replace Rockman's face for shooting from a ladder.
+{reorg $40, $6400 + (($4C - $40) * $10)}
+incbin "numbersprites.bin", 12 * $10, $10
+// 5A, 5B, 6A, 6B -> 0, 1, 2, 3: Replace Rockman's body for shooting from a ladder.
+{reorg $40, $6400 + (($5A - $40) * $10)}
+incbin "numbersprites.bin", 0 * $10, $10
+{reorg $40, $6400 + (($5B - $40) * $10)}
+incbin "numbersprites.bin", 1 * $10, $10
+{reorg $40, $6400 + (($6A - $40) * $10)}
+incbin "numbersprites.bin", 2 * $10, $10
+{reorg $40, $6400 + (($6B - $40) * $10)}
+incbin "numbersprites.bin", 3 * $10, $10
+// 7E, 7F -> 4, 5: Replace small weapon refills.
+{reorg $40, $6400 + (($7E - $40) * $10)}
+incbin "numbersprites.bin", 4 * $10, $10
+{reorg $40, $6400 + (($7F - $40) * $10)}
+incbin "numbersprites.bin", 5 * $10, $10
+// 4E, 4F, 5E, 5F -> 6, 7, 8, 9: Replace ladder climb animation.
+{reorg $40, $6400 + (($4E - $40) * $10)}
+incbin "numbersprites.bin", 6 * $10, $10
+{reorg $40, $6400 + (($4F - $40) * $10)}
+incbin "numbersprites.bin", 7 * $10, $10
+{reorg $40, $6400 + (($5E - $40) * $10)}
+incbin "numbersprites.bin", 8 * $10, $10
+{reorg $40, $6400 + (($5F - $40) * $10)}
+incbin "numbersprites.bin", 9 * $10, $10
+
+{loadpc}
 
 
 // Hook the reset sequence to load our code from CHR-ROM to PRG-RAM.
@@ -184,12 +238,14 @@ init_level_hook:
 	jmp $C647
 
 
-
 // Hook the OAM clear code during various points.
 {savepc}
 	// Called during normal operation.
 	{reorg $3E, $C7B8}
 	jsr oam_hook_normal
+	// Called during horizontal screen transitions.
+	{reorg $3E, $CBC3}
+	jsr oam_hook_transition
 	// Called during vertical screen transitions.
 	{reorg $3E, $CE52}
 	jsr oam_hook_transition
@@ -217,9 +273,9 @@ oam_hook_transition:
 	// Call original function.
 	jsr $C421
 
-	// Switch to our CHR-ROM bank.
+	// Switch to the non-death CHR-ROM bank.
 	lda.b #3
-	ldx.b #$01
+	ldx.b #$00
 	sta.w $8000
 	stx.w $8001
 
@@ -260,12 +316,41 @@ oam_hook_transition:
 	lda.b #208 + (8 * 4)
 	sta.w $0217
 
-	// Tile ID.
-	lda.b #{sprite_tile_apostrophe}
-	sta.w $0205
-	sta.w $0209
+	// Tile IDs.
+	// Apostrophe.
+	lda.b #$4C
 	sta.w $020D
+
+	ldx.w last_time_seconds
+	lda.w bcd_table, x
+	tax
+	and.b #$0F
+	tay
+	lda sprite_tile_table, y
+	sta.w $0209
+	txa
+	lsr
+	lsr
+	lsr
+	lsr
+	tay
+	lda sprite_tile_table, y
+	sta.w $0205
+	
+	ldx.w last_time_frames
+	lda.w bcd_table, x
+	tax
+	and.b #$0F
+	tay
+	lda sprite_tile_table, y
 	sta.w $0211
+	txa
+	lsr
+	lsr
+	lsr
+	lsr
+	tay
+	lda sprite_tile_table, y
 	sta.w $0215
 
 	// This is supposed to point to the next available slot in the OAM buffer.
@@ -346,9 +431,16 @@ oam_hook_transition:
 //	rts
 
 
-// Lookup table to convert a binary value to decimal digits' sprite values.
-number_table:
-incsrc "numbertable.asm"
+// Lookup table to convert a binary value to BCD.
+bcd_table:
+incsrc "bcdtable.asm"
+
+// Mapping from numbers to sprite IDs.
+sprite_tile_table:
+	// Screen transition version:
+	db $5A, $5B, $6A, $6B, $7E, $7F, $60, $61, $62, $63
+	// Boss kill, death animation version:
+	db $5A, $5B, $6A, $6B, $7E, $7F, $60, $61, $62, $63
 
 
 // RAM variables.  Designed similarly to the Rockman 3 practice ROM.
