@@ -371,15 +371,6 @@ oam_hook_transition:
 	rts
 
 
-// Delete the damned stage intros from the game.
-{savepc}
-	{reorg $39, $80E4}
-	nop
-	nop
-	nop
-{loadpc}
-
-
 // Hook the code to load the stage select background.
 {savepc}
 	{reorg $39, $84AA}
