@@ -3,7 +3,7 @@ arch snes.cpu
 
 // Macro to change where we are
 macro reorg bank, address
-	org $10 + ({bank} * $2000) + ({address} & $1FFF)
+	org $10 + (({bank}) * $2000) + (({address}) & $1FFF)
 	base {address}
 endmacro
 
@@ -14,14 +14,21 @@ define loadpc pull base, origin
 // Warn if the current address is greater than the specified value.
 macro warnpc n
 	{#}:
-	if {#} > {n}
+	if {#} > ({n})
 		warning "warnpc assertion failure"
 	endif
 endmacro
 
 
 // Helpful addresses and constants.
-define ram_2000_shadow $00FD
+define ram_zp_current_level $0022
+define ram_zp_completed_stages $00A9
+define ram_zp_2000_shadow $00FD
+define rom_bank39_level_id_map $8860
+define rom_play_sound $F6BE
+define sound_choose $2A
+define sound_move_cursor $2E
+define sound_pause $30
 
 
 // The first thing we do is build the base file.
@@ -437,16 +444,117 @@ show_screen_hook:
 	cpx.b #tiles_drwily_logo.end - tiles_drwily_logo
 	bne .loop_drwily
 
-	lda.b #2
-	sta.b $FD
-	sta.w $7FFF
 	// Restore saved X.
 	pla
 	tax
 
+	// While we're here, clear out the completed stages list.
+	lda.b #$00
+	sta.b {ram_zp_completed_stages}
+	sta.b {ram_zp_completed_stages} + 1
+
 .not_stage_select:
 	// Return to caller.
 	rts
+
+
+// Hack what happens when a level is chosen.
+// We can delete a lot of code here.  Most of it is either checks we don't
+// need, like special code for choosing Cossack.
+{savepc}
+	// Patch one byte of the original table: make middle option $FF.
+	{reorg $39, {rom_bank39_level_id_map} + 4}
+	db $FF
+
+	// Where the code handling level choices goes.
+	{reorg $39, $80C2}
+level_select_choose:
+	// Look up the level in the table based on where the cursor is.
+	lda.b $10
+	clc
+	adc.b $11
+	tay
+	// Select which table to use based on whether Cossack/Wily list shows.
+	lda.b {ram_zp_2000_shadow}
+	and.b #%00000010
+	beq .original_table
+	lda .cossack_wily_table, y
+	bne .table_continue          // no cossack table entries are zero -> branch always
+.original_table:
+	lda {rom_bank39_level_id_map}, y
+.table_continue:
+
+	// If the middle option was chosen, this value will be negative.
+	bpl .not_middle
+
+	// Middle option means to switch screens.  We switch screens by setting
+	// the primary nametable to $2800 instead of $2000.
+	lda.b {ram_zp_2000_shadow}
+	eor.b #%00000010
+	sta.b {ram_zp_2000_shadow}
+
+	// If the shadow just became zero, restore the original sprites' Y locations.
+	// Otherwise, hide the sprites.
+	bne .hide_sprites
+	// Reload the correct Y locations.
+	ldx.b #0
+	ldy.b #0
+.show_sprites_loop:
+	lda.w level_select_sprite_y_table, x
+	sta $0218, y
+	inx
+	iny
+	iny
+	iny
+	iny
+	cpx.b #level_select_sprite_y_table.end - level_select_sprite_y_table
+	bne .show_sprites_loop
+	beq .sprites_done
+
+.hide_sprites:
+	// Hide the sprites.
+	ldx.b #0
+	ldy.b #0
+	lda.b #$F8
+.hide_sprites_loop:
+	sta $0218, y
+	inx
+	iny
+	iny
+	iny
+	iny
+	cpx.b #level_select_sprite_y_table.end - level_select_sprite_y_table
+	bne .hide_sprites_loop
+
+.sprites_done:
+	// Play the in-game menu/pause sound effect.
+	lda.b #{sound_pause}
+	jsr {rom_play_sound}
+	// Return to select screen loop.
+	jmp $80AD
+
+.not_middle:
+	// We skip a ton of useless stuff and skip to just loading the level.
+	// An actual level was chosen.
+	sta.b {ram_zp_current_level}
+
+	// Play the "choose" sound effect.
+	lda.b #{sound_choose}
+	jsr {rom_play_sound}
+
+	// I don't know what these do, but the original code does it here.
+	lda.b #0
+	sta.b $2A
+	sta.b $24
+	rts
+
+.cossack_wily_table:
+	// Map from the 9 cursor position to levels.
+	db 8, 9, 10, 11, $FF, 12, 13, 14, 15
+
+	// We can overwrite all the way through the Cossack castle intro code.
+	{warnpc $8209}
+{loadpc}
 
 
 // Lookup table to convert a binary value to BCD.
@@ -463,11 +571,17 @@ sprite_tile_table:
 
 // Tilemap layout for when the player hits select.
 tilemap_second_level_select:
-	incbin "stageselect-nametable-hacked.bin"
+	incbin "stageselect-nametable.bin"
 
 // Bitmap data for the Dr. Wily logo.
 tiles_drwily_logo:
 	incbin "drwily-logo.bin"
+.end:
+
+// The Y positions of the sprites on the stage select screen.
+// We use this to restore when flipping "pages".
+level_select_sprite_y_table:
+	incbin "sprite-y-positions.bin"
 .end:
 
 
@@ -485,4 +599,4 @@ last_time_frames:
 	db 0
 
 
-{warnpc $8000}
+{warnpc $7FFF}
