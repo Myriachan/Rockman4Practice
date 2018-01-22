@@ -20,6 +20,10 @@ macro warnpc n
 endmacro
 
 
+// Helpful addresses and constants.
+define ram_2000_shadow $00FD
+
+
 // The first thing we do is build the base file.
 
 // Replacement NES header.  The ROM is changed from 4 to 119 (TQROM) so that we can use
@@ -231,7 +235,6 @@ init_level_hook:
 	lda.b #0
 	sta.w current_time_seconds
 	sta.w current_time_frames
-	sta.w last_time_timer
 	// Deleted code (creates Rockman object?).
 	lda.b #1
 	sta.w $0300
@@ -361,74 +364,89 @@ oam_hook_transition:
 	rts
 
 
-//// Called when a horizontal screen transition occurs.
-//{savepc}
-//	{reorg $3E, $CAFF}
-//	jmp transition_horizontal
-//{loadpc}
-//transition_horizontal:
-//	// Number of frames to show the timer.
-//	lda.b #60
-//	jsr transition_shared
-//	// Deleted code.
-//	lda.b $2B
-//	and.b #$0F
-//	jmp $CB03
-//
-//
-//// Shared transition code.  A is how many frames to show the timer.
-//transition_shared:
-//	// Display timer.
-//	sta.w last_time_timer
-//	lda.w current_time_seconds
-//	sta.w last_time_seconds
-//	lda.w current_time_frames
-//	sta.w last_time_frames
-//	rts
-//
-//
-//// OAM hook, where we take over.
-//// This is pretty much a copy of the Rockman 3 practice ROM's oam_hook.
-//{savepc}
-//	//{reorg $3E, $C7B8}
-//	{reorg $3E, $CE52}
-//	jsr oam_hook
-//{loadpc}
-//oam_hook:
-//	// Call original function here.  It clears OAM, rather conveniently.
-//	jsr $C421
-//
-//	// Is the timer still being displayed?
-//	lda.w last_time_timer
-//	bne .show
-//	// Not displaying timer.
-//	rts
-//
-//.show:
-//	// Tick down how many frames to show the timer.
-//	dec.w last_time_timer
-//	bne .not_done
-//
-//	// Restore the CHR-RAM bank.
-//	ldx.b #$45
-//	bne .done_continue    // unconditional branch
-//.not_done:
-//	// Swap in our custom CHR-ROM bank.
-//	ldx.b #$01
-//.done_continue:
-//	lda.b #3
-//	sta.w $8000
-//	stx.w $8001
-//
-//	// Zero the current time while we are displaying the timer.  This way,
-//	// it'll start counting again from zero.
-//	// NOTE: Write frames first, so that NMI won't accidentally carry into the
-//	// seconds after we zero it if we're unlucky and the interrupt occurs
-//	// between our writes here.
-//	lda.b #0
-//	sta.w current_time_frames
-//	sta.w current_time_seconds
-//	rts
+// Delete the damned stage intros from the game.
+{savepc}
+	{reorg $39, $80E4}
+	nop
+	nop
+	nop
+{loadpc}
+
+
+// Hook the code to load the stage select background.
+{savepc}
+	{reorg $39, $84AA}
+	jsr show_screen_hook
+{loadpc}
+show_screen_hook:
+	// Original function.
+	// We need to do this first, because we overwrite what it puts into VRAM.
+	jsr $DA05
+
+	// Is this going to display stage select?
+	lda.b $10
+	cmp.b #2
+	bne .not_stage_select
+	lda.b $2A
+	cmp.b #0
+	bne .not_stage_select
+
+	// Save X, which the target routine depends on.
+	txa
+	pha
+	// Copy our alternate stage select screen to the second nametable.
+	lda.w $2002   // reset latch
+	lda.b #$28
+	sta.w $2006
+	lda.b #$00
+	sta.w $2006
+	tax
+.loop_0:
+	lda.w tilemap_second_level_select + $000, x
+	sta.w $2007
+	inx
+	bne .loop_0
+.loop_1:
+	lda.w tilemap_second_level_select + $100, x
+	sta.w $2007
+	inx
+	bne .loop_1
+.loop_2:
+	lda.w tilemap_second_level_select + $200, x
+	sta.w $2007
+	inx
+	bne .loop_2
+.loop_3:
+	lda.w tilemap_second_level_select + $300, x
+	sta.w $2007
+	inx
+	bne .loop_3
+
+	// Overwrite "CAPCOM" from "CAPCOM PRESENTS" with the Dr. Wily logo,
+	// since we don't need that bitmap anymore for stage select.
+	lda.w $2002   // reset latch
+	lda.b #($0000 + ($4A * $10)) >> 8
+	sta.w $2006
+	lda.b #($0000 + ($4A * $10)) & $FF
+	sta.w $2006
+	ldx.b #0
+.loop_drwily:
+	lda.w tiles_drwily_logo, x
+	sta.w $2007
+	inx
+	cpx.b #tiles_drwily_logo.end - tiles_drwily_logo
+	bne .loop_drwily
+
+	lda.b #2
+	sta.b $FD
+	sta.w $7FFF
+	// Restore saved X.
+	pla
+	tax
+
+.not_stage_select:
+	// Return to caller.
+	rts
 
 
 // Lookup table to convert a binary value to BCD.
@@ -443,6 +461,16 @@ sprite_tile_table:
 	db $5A, $5B, $6A, $6B, $7E, $7F, $60, $61, $62, $63
 
 
+// Tilemap layout for when the player hits select.
+tilemap_second_level_select:
+	incbin "stageselect-nametable-hacked.bin"
+
+// Bitmap data for the Dr. Wily logo.
+tiles_drwily_logo:
+	incbin "drwily-logo.bin"
+.end:
+
+
 // RAM variables.  Designed similarly to the Rockman 3 practice ROM.
 
 // Number of seconds and frames that've elapsed since last screen transition.
@@ -450,23 +478,10 @@ current_time_seconds:
 	db 0
 current_time_frames:
 	db 0
-// Number of frames to show the last room's time.
-last_time_timer:
-	db 0
 // Number of seconds and frames we're displaying.
 last_time_seconds:
 	db 0
 last_time_frames:
-	db 0
-
-// Current setting desired for CHR region 1400-17FF (MMC3 bank register 3).
-desired_mmc3_bank3:
-	db $45    // default to CHR-RAM
-
-// Temporary memory.
-temp1:
-	db 0
-temp2:
 	db 0
 
 
