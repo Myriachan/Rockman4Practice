@@ -353,7 +353,7 @@ oam_hook_transition:
 	and.b #$0F
 	tay
 	lda sprite_tile_table, y
-	sta.w $0211
+	sta.w $0215
 	txa
 	lsr
 	lsr
@@ -361,7 +361,7 @@ oam_hook_transition:
 	lsr
 	tay
 	lda sprite_tile_table, y
-	sta.w $0215
+	sta.w $0211
 
 	// This is supposed to point to the next available slot in the OAM buffer.
 	lda.b #$18
