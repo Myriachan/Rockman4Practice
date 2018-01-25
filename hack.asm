@@ -1,5 +1,5 @@
-// The assembler I'm using doesn't know 6502, hehe.
-arch snes.cpu
+// Use the custom nes.cpu file.
+arch nes.cpu
 
 // Macro to change where we are
 macro reorg bank, address
@@ -21,9 +21,9 @@ endmacro
 
 
 // Helpful addresses and constants.
-define ram_zp_current_level $0022
-define ram_zp_completed_stages $00A9
-define ram_zp_2000_shadow $00FD
+define ram_zp_current_level $22
+define ram_zp_completed_stages $A9
+define ram_zp_2000_shadow $FD
 define rom_bank39_level_id_map $8860
 define rom_play_sound $F6BE
 define sound_choose $2A
@@ -145,7 +145,7 @@ incbin "numbersprites.bin", 9 * $10, $10
 boot_copy_hook:
 
 	// Set the CHR banks to CHR-ROM.
-	ldx.b #5
+	ldx #5
 .bank_loop:
 	stx.w $8000
 	lda.w .chr_rom_bank_table, x
@@ -155,10 +155,10 @@ boot_copy_hook:
 
 	// Copy CHR-ROM 0000-1FFF to PRG-RAM 6000-7FFF.
 	// Enable PRG-RAM, and for writing.
-	lda.b #%10000000
+	lda #%10000000
 	sta.w $A001
 	// PPU read address = 0.
-	lda.b #0
+	lda #0
 	sta.w $2006
 	sta.w $2006
 	// $00 will contain the word address to write to.
@@ -168,7 +168,7 @@ boot_copy_hook:
 	// Clear Y for the 256 iterations.
 	tay
 	// Bank to write to.
-	ldx.b #$60
+	ldx #$60
 .copy_outer_loop:
 	stx.b $01
 .copy_inner_loop:
@@ -219,15 +219,15 @@ nmi_hook:
 	// Increment frame counter.
 	inc.w current_time_frames
 	lda.w current_time_frames
-	cmp.b #60
+	cmp #60
 	bne .no_carry
 	inc.w current_time_seconds
-	lda.b #0
+	lda #0
 	sta.w current_time_frames
 .no_carry:
 
 	// Second deleted instruction.
-	ldx.b #$FF
+	ldx #$FF
 	jmp $C0F1
 
 
@@ -239,11 +239,11 @@ nmi_hook:
 {loadpc}
 init_level_hook:
 	// Clear the timers.
-	lda.b #0
+	lda #0
 	sta.w current_time_seconds
 	sta.w current_time_frames
 	// Deleted code (creates Rockman object?).
-	lda.b #1
+	lda #1
 	sta.w $0300
 	jmp $C647
 
@@ -263,8 +263,8 @@ init_level_hook:
 
 oam_hook_normal:
 	// Set normal CHR-RAM mode.
-	lda.b #3
-	ldx.b #$45
+	lda #3
+	ldx #$45
 	sta.w $8000
 	stx.w $8001
 	// Copy timer.  When we stop executing, that's the value to display.
@@ -284,14 +284,14 @@ oam_hook_transition:
 	jsr $C421
 
 	// Switch to the non-death CHR-ROM bank.
-	lda.b #3
-	ldx.b #$00
+	lda #3
+	ldx #$00
 	sta.w $8000
 	stx.w $8001
 
 	// Zero current time while we're in this function.  Write frames before
 	// seconds to prevent NMI doing a carry (only one NMI can occur here).
-	lda.b #0
+	lda #0
 	sta.w current_time_frames
 	sta.w current_time_seconds
 
@@ -299,7 +299,7 @@ oam_hook_transition:
 
 	// This layout copies the Rockman 3 practice ROM.
 	// Y coordinate.
-	lda.b #16
+	lda #16
 	sta.w $0204
 	sta.w $0208
 	sta.w $020C
@@ -307,7 +307,7 @@ oam_hook_transition:
 	sta.w $0214
 
 	// Attributes/palette.
-	lda.b #%00000001
+	lda #%00000001
 	sta.w $0206
 	sta.w $020A
 	sta.w $020E
@@ -315,26 +315,26 @@ oam_hook_transition:
 	sta.w $0216
 
 	// X coordinate.
-	lda.b #208 + (8 * 0)
+	lda #208 + (8 * 0)
 	sta.w $0207
-	lda.b #208 + (8 * 1)
+	lda #208 + (8 * 1)
 	sta.w $020B
-	lda.b #208 + (8 * 2)
+	lda #208 + (8 * 2)
 	sta.w $020F
-	lda.b #208 + (8 * 3)
+	lda #208 + (8 * 3)
 	sta.w $0213
-	lda.b #208 + (8 * 4)
+	lda #208 + (8 * 4)
 	sta.w $0217
 
 	// Tile IDs.
 	// Apostrophe.
-	lda.b #$4C
+	lda #$4C
 	sta.w $020D
 
 	ldx.w last_time_seconds
 	lda.w bcd_table, x
 	tax
-	and.b #$0F
+	and #$0F
 	tay
 	lda sprite_tile_table, y
 	sta.w $0209
@@ -350,7 +350,7 @@ oam_hook_transition:
 	ldx.w last_time_frames
 	lda.w bcd_table, x
 	tax
-	and.b #$0F
+	and #$0F
 	tay
 	lda sprite_tile_table, y
 	sta.w $0215
@@ -364,7 +364,7 @@ oam_hook_transition:
 	sta.w $0211
 
 	// This is supposed to point to the next available slot in the OAM buffer.
-	lda.b #$18
+	lda #$18
 	sta.b $97
 
 	// Done.
@@ -383,10 +383,10 @@ show_screen_hook:
 
 	// Is this going to display stage select?
 	lda.b $10
-	cmp.b #2
+	cmp #2
 	bne .not_stage_select
 	lda.b $2A
-	cmp.b #0
+	cmp #0
 	bne .not_stage_select
 
 	// Save X, which the target routine depends on.
@@ -394,9 +394,9 @@ show_screen_hook:
 	pha
 	// Copy our alternate stage select screen to the second nametable.
 	lda.w $2002   // reset latch
-	lda.b #$28
+	lda #$28
 	sta.w $2006
-	lda.b #$00
+	lda #$00
 	sta.w $2006
 	tax
 .loop_0:
@@ -423,16 +423,16 @@ show_screen_hook:
 	// Overwrite "CAPCOM" from "CAPCOM PRESENTS" with the Dr. Wily logo,
 	// since we don't need that bitmap anymore for stage select.
 	lda.w $2002   // reset latch
-	lda.b #($0000 + ($4A * $10)) >> 8
+	lda #($0000 + ($4A * $10)) >> 8
 	sta.w $2006
-	lda.b #($0000 + ($4A * $10)) & $FF
+	lda #($0000 + ($4A * $10)) & $FF
 	sta.w $2006
-	ldx.b #0
+	ldx #0
 .loop_drwily:
 	lda.w tiles_drwily_logo, x
 	sta.w $2007
 	inx
-	cpx.b #tiles_drwily_logo.end - tiles_drwily_logo
+	cpx #tiles_drwily_logo.end - tiles_drwily_logo
 	bne .loop_drwily
 
 	// Restore saved X.
@@ -440,7 +440,7 @@ show_screen_hook:
 	tax
 
 	// While we're here, clear out the completed stages list.
-	lda.b #$00
+	lda #$00
 	sta.b {ram_zp_completed_stages}
 	sta.b {ram_zp_completed_stages} + 1
 
@@ -467,7 +467,7 @@ level_select_choose:
 	tay
 	// Select which table to use based on whether Cossack/Wily list shows.
 	lda.b {ram_zp_2000_shadow}
-	and.b #%00000010
+	and #%00000010
 	beq .original_table
 	lda .cossack_wily_table, y
 	bne .table_continue          // no cossack table entries are zero -> branch always
@@ -481,15 +481,15 @@ level_select_choose:
 	// Middle option means to switch screens.  We switch screens by setting
 	// the primary nametable to $2800 instead of $2000.
 	lda.b {ram_zp_2000_shadow}
-	eor.b #%00000010
+	eor #%00000010
 	sta.b {ram_zp_2000_shadow}
 
 	// If the shadow just became zero, restore the original sprites' Y locations.
 	// Otherwise, hide the sprites.
 	bne .hide_sprites
 	// Reload the correct Y locations.
-	ldx.b #0
-	ldy.b #0
+	ldx #0
+	ldy #0
 .show_sprites_loop:
 	lda.w level_select_sprite_y_table, x
 	sta $0218, y
@@ -498,15 +498,15 @@ level_select_choose:
 	iny
 	iny
 	iny
-	cpx.b #level_select_sprite_y_table.end - level_select_sprite_y_table
+	cpx #level_select_sprite_y_table.end - level_select_sprite_y_table
 	bne .show_sprites_loop
 	beq .sprites_done
 
 .hide_sprites:
 	// Hide the sprites.
-	ldx.b #0
-	ldy.b #0
-	lda.b #$F8
+	ldx #0
+	ldy #0
+	lda #$F8
 .hide_sprites_loop:
 	sta $0218, y
 	inx
@@ -514,12 +514,12 @@ level_select_choose:
 	iny
 	iny
 	iny
-	cpx.b #level_select_sprite_y_table.end - level_select_sprite_y_table
+	cpx #level_select_sprite_y_table.end - level_select_sprite_y_table
 	bne .hide_sprites_loop
 
 .sprites_done:
 	// Play the in-game menu/pause sound effect.
-	lda.b #{sound_pause}
+	lda #{sound_pause}
 	jsr {rom_play_sound}
 	// Return to select screen loop.
 	jmp $80AD
@@ -530,11 +530,11 @@ level_select_choose:
 	sta.b {ram_zp_current_level}
 
 	// Play the "choose" sound effect.
-	lda.b #{sound_choose}
+	lda #{sound_choose}
 	jsr {rom_play_sound}
 
 	// I don't know what these do, but the original code does it here.
-	lda.b #0
+	lda #0
 	sta.b $2A
 	sta.b $24
 	rts
