@@ -21,6 +21,7 @@ endmacro
 
 
 // Helpful addresses and constants.
+define ram_zp_controller1_new $0014
 define ram_zp_current_level $0022
 define ram_zp_rockman_state $0030
 define ram_zp_lives $00A1
@@ -775,7 +776,79 @@ weapon_give_table:
 	dw %11111111011111
 
 	// We can overwrite all the way through the Cossack castle intro code.
-	{warnpc $8209}
+	{warnpc $820A}
+{loadpc}
+
+
+{savepc}
+// Handles pause screen choices.
+// Overwrites code for showing Dr. Cossack's castle; useless for us.
+// NOTE: This code executes from the A000 bank instead of 8000.
+	{reorg $39, $A32C}
+pause_screen_hook:
+	// Deleted code we execute no matter what.
+	lda.b #0
+	sta.w $0131
+	ldx.w $0138
+	// We're called when the user has chosen.
+	lda.b {ram_zp_controller1_new}
+	and.b #$20
+	beq .not_select
+	// Trigger a stage exit.
+	lda.b #$08
+	bne .yes_select
+.not_select:
+	// Deleted code.
+	cpx.b #$07
+	beq .use_etank
+	// The original code writes 00, so do that if not select.
+	lda.b #$00
+.yes_select:
+	sta.b {ram_zp_rockman_state}
+	// Return address.
+	lda.b #($972C - 1) >> 8
+	pha
+	lda.b #($972C - 1) & $FF
+	pha
+	sty.b {ram_zp_request_A000_bank}
+	jmp {rom_prg_bank_switch}
+.use_etank:
+	// Return address.
+	lda.b #($96F4 - 1) >> 8
+	pha
+	lda.b #($96F4 - 1) & $FF
+	pha
+	sty.b {ram_zp_request_A000_bank}
+	jmp {rom_prg_bank_switch}
+
+	{warnpc $A3D8}
+{loadpc}
+
+
+// Bank $3C overwrites.
+{savepc}
+	// Infinite E-tanks.
+	{reorg $3C, $96F2}
+	nop
+	nop
+	// Add the select button to the buttons that can exit the pause screen.
+	{reorg $3C, $96D9}
+	and.b #$B0
+	// Hook when leaving the pause screen.
+	{reorg $3C, $9720}
+	ldy.b {ram_zp_request_A000_bank}
+	lda.b #$39
+	sta.b {ram_zp_request_A000_bank}
+	jsr {rom_prg_bank_switch}
+	jmp pause_screen_hook
+	{warnpc $972C}
+	// Delete the write to ram_zp_rockman_state; we do our own above.
+	{reorg $3C, $973C}
+	nop
+	nop
+	// Hurry up E-tank refills.
+	{reorg $3C, $9704}
+	ldx.b #2
 {loadpc}
 
 

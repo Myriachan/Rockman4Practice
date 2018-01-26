@@ -35,6 +35,18 @@ Free space in ROM (larger than 256 bytes):
 34:07C8 (687D8)  0140
 
 
+0014 = controller 1 new pushes
+     01 = right
+     02 = left
+     04 = down
+     08 = up
+     10 = start
+     20 = select
+     40 = B
+     80 = A
+0015 = controller 2 new pushes
+0016 = controller 1 held buttons
+0017 = controller 2 held buttons
 0022 = current stage
      00 = Bright Man
      01 = Toad Man
