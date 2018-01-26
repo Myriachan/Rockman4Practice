@@ -80,6 +80,8 @@ Free space in ROM (larger than 256 bytes):
      12 = walk in place (horizontal transition also?)
      13 = teleport (completed wily 4), plays ending, but music stays on
 0097 = next available slot in OAM
+00A1 = lives
+00A2 = E-tanks
 00A9 = bitmask of completed stages (low half)
 00AA = bitmask of completed stages (high half)
 00B0 = current health (80-9C)

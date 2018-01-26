@@ -23,7 +23,10 @@ endmacro
 // Helpful addresses and constants.
 define ram_zp_current_level $0022
 define ram_zp_rockman_state $0030
+define ram_zp_lives $00A1
+define ram_zp_etanks $00A2
 define ram_zp_completed_stages $00A9
+define ram_zp_energy $00B0
 define ram_zp_request_8000_bank $00F5
 define ram_zp_request_A000_bank $00F6
 define ram_zp_2000_shadow_1 $00FD
@@ -691,6 +694,47 @@ level_select_choose:
 	lda.b #{sound_choose}
 	jsr {rom_play_sound}
 
+	// Although it only matters for display, set lives and E-tanks to 9.
+	lda.b #9
+	sta.b {ram_zp_etanks}
+
+	// Give the player the weapons that they should have on this stage.
+	lda.w $1234
+	lda.b {ram_zp_current_level}
+	asl
+	tax
+	cpx.b #weapon_give_table.last - weapon_give_table
+	bcc .weapon_not_cossack
+	ldx.b #weapon_give_table.last - weapon_give_table
+.weapon_not_cossack:
+	lda.w weapon_give_table, x
+	sta.b $00
+	lda.w weapon_give_table + 1, x
+	sta.b $01
+	ldx.b #0
+	ldy.b #8
+.weapon_first_loop:
+	lsr.b $00
+	lda.b #$00
+	bcc .weapon_first_nope
+	lda.b #$9C
+.weapon_first_nope:
+	sta.b {ram_zp_energy}, x
+	inx
+	dey
+	bne .weapon_first_loop
+	ldy.b #6
+.weapon_second_loop:
+	lsr.b $01
+	lda.b #$00
+	bcc .weapon_second_nope
+	lda.b #$9C
+.weapon_second_nope:
+	sta.b {ram_zp_energy}, x
+	inx
+	dey
+	bne .weapon_second_loop
+
 	// I don't know what these do, but the original code does it here.
 	lda.b #0
 	sta.b $2A
@@ -706,6 +750,29 @@ level_select_choose:
 level_select_sprite_y_table:
 	incbin "sprite-y-positions.bin"
 .end:
+
+// Table of what weapons to give you on each stage.
+weapon_give_table:
+	//  DCBA9876543210
+	// 2. Bright Man            (player gets Balloon during Pharaoh)
+	dw %00100001000011
+	// 8. Toad Man              (player gets Rush Jet for beating Drill Man)
+	dw %11111111000111
+	// 7. Drill Man
+	dw %11110111000011
+	// 1. Pharoah Man
+	dw %00000000000011
+	// 3. Ring Man
+	dw %01100001000011
+	// 4. Dust Man
+	dw %01100101000011
+	// 6. Dive Man
+	dw %11110101000011
+	// 5. Skull Man
+	dw %01110101000011
+.last:
+	// 9-16. Cossack 1~Wily 4   (player gets Rush Marina for beating Toad Man)
+	dw %11111111011111
 
 	// We can overwrite all the way through the Cossack castle intro code.
 	{warnpc $8209}
