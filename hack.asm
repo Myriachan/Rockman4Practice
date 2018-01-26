@@ -771,7 +771,7 @@ weapon_give_table:
 	// 5. Skull Man
 	dw %01110101000011
 .last:
-	// 9-16. Cossack 1~Wily 4   (player gets Rush Marina for beating Toad Man)
+	// 9-16. Cossack 1~Wily 4   (player gets Rush Marine for beating Toad Man)
 	dw %11111111011111
 
 	// We can overwrite all the way through the Cossack castle intro code.
