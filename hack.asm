@@ -1,4 +1,4 @@
-// The assembler I'm using doesn't know 6502, hehe.
+ // The assembler I'm using doesn't know 6502, hehe.
 arch snes.cpu
 
 // Macro to change where we are
@@ -22,13 +22,25 @@ endmacro
 
 // Helpful addresses and constants.
 define ram_zp_current_level $0022
+define ram_zp_rockman_state $0030
 define ram_zp_completed_stages $00A9
-define ram_zp_2000_shadow $00FD
+define ram_zp_request_8000_bank $00F5
+define ram_zp_request_A000_bank $00F6
+define ram_zp_2000_shadow_1 $00FD
+define ram_zp_2000_shadow_2 $00FF
 define rom_bank39_level_id_map $8860
 define rom_play_sound $F6BE
+define rom_coroutine_yield $FF1C
+define rom_prg_bank_switch $FF37
 define sound_choose $2A
 define sound_move_cursor $2E
 define sound_pause $30
+
+define current_time_seconds $05D0
+define current_time_frames $05D1
+define last_time_seconds $05D2
+define last_time_frames $05D3
+define sprite_tile_select $05D4
 
 
 // The first thing we do is build the base file.
@@ -45,7 +57,7 @@ base 0
 	db ({mapper_id} & $F0) | %1000           // mapper mid and NES 2.0 magic
 	db (0 << 4) | ({mapper_id} >> 8)         // mapper high and submapper (none)
 	db (0 << 4) | 0                          // high nibbles of bank counts
-	db (0 << 4) | 7                          // 8192 bytes of non-battery-backed PRG-RAM
+	db (0 << 4) | 0                          // 0 bytes of non-battery-backed PRG-RAM
 	db (0 << 4) | 7                          // 8192 bytes of non-battery-backed CHR-RAM
 	db %00                                   // NTSC video mode, not PAL-compatible
 	db 0                                     // standard home console PPU model
@@ -138,92 +150,184 @@ incbin "numbersprites.bin", 9 * $10, $10
 {loadpc}
 
 
-// Hook the reset sequence to load our code from CHR-ROM to PRG-RAM.
+// Move the reset routine out of the way in order make some space.
 {savepc}
-	// This is overwriting the RAM clear routine.
-	{reorg $3F, $FE39}
-boot_copy_hook:
+	// The raw beginning of reset.
+	{reorg $3F, $FE00}
+	// Critical first instructions.
+	sei
+	cld
+	// Map bank 3 to 8000-9FFF for the rest of the reset code.
+	lda.b #6
+	sta.w $8000
+	lsr
+	sta.w $8001
+	// Jump to the replacement.
+	jmp reset_moved
+	{warnpc $FE0E}
 
-	// Set the CHR banks to CHR-ROM.
-	ldx.b #5
-.bank_loop:
+	// Some unused space ($500 bytes) in bank 3.
+	{reorg $03, $8400}
+	// Continuation of reset code.
+reset_moved:
+	// Copy original reset code's FE02-FE66 inclusive here.  This part is relocatable.
+	incbin "Rockman 4 - Aratanaru Yabou!! (Japan).nes", $10 + ($3F * $2000) + ($FE02 & $1FFF), $FE67 - $FE02
+
+	// Don't do FE67-FE70 yet, because this changes the PRG-ROM banks and
+	// would pull the rug out from under us.  Instead, delay it to the end.
+	// This code is customized versus the original.
+
+	// Set the CHR banks to CHR-RAM.  This code is like the original, except
+	// that bit $40 is set to indicate to the different mapper to use CHR-RAM.
+	ldx.b #(.chr_ram_banks_end - .chr_ram_banks) - 1
+.chr_ram_set_loop:
 	stx.w $8000
-	lda.w .chr_rom_bank_table, x
+	lda.w .chr_ram_banks, x
 	sta.w $8001
 	dex
-	bpl .bank_loop
+	bpl .chr_ram_set_loop
 
-	// Copy CHR-ROM 0000-1FFF to PRG-RAM 6000-7FFF.
-	// Enable PRG-RAM, and for writing.
-	lda.b #%10000000
-	sta.w $A001
-	// PPU read address = 0.
+	// Clear OAM - same subroutine as other code we use.
+	jsr $C421
+
+	// Wipe the nametables.
+	// NOTE: I think that this is a bug: the game put the MMC3 into horizontal
+	// mirroring mode, so this overwrites the same location twice >.<
+	lda.b #$20
+	ldx.b #$00
+	ldy.b #$00
+	jsr .fill_vram
+	lda.b #$24
+	ldx.b #$00
+	ldy.b #$00
+	jsr .fill_vram
+
+	// Create the main_loop ($C50C) coroutine as the bootstrap.
+	lda.b #($C50C >> 8)
+	sta.b $94
+	lda.b #($C50C & $FF)
+	sta.b $93
 	lda.b #0
-	sta.w $2006
-	sta.w $2006
-	// $00 will contain the word address to write to.
-	sta.b $00
-	// Dummy PPU read.
-	ldx.w $2007
-	// Clear Y for the 256 iterations.
-	tay
-	// Bank to write to.
-	ldx.b #$60
-.copy_outer_loop:
-	stx.b $01
-.copy_inner_loop:
-	lda.w $2007
-	sta ($00), y
-	iny
-	bne .copy_inner_loop
+	jsr $FEED
+
+	// main_loop and NMI write this to $2000.  main_loop's write will
+	// therefore enable NMI.  The $08 bit sets the sprite CHR table to $1000.
+	lda.b #%10001000
+	sta.b {ram_zp_2000_shadow_2}
+
+	// Map banks $3C and $3D to 8000-BFFF before the coroutine executes.
+	// Because this bank switch will swap out the code we're executing now,
+	// set up the routine to return to $FEA5, the coroutine loop of reset.
+	lda.b #($FEA5 - 1) >> 8
+	pha
+	lda.b #($FEA5 - 1) & $FF
+	pha
+	ldx.b #$3C
+	stx.b {ram_zp_request_8000_bank}
 	inx
-	// When X goes from 7F to 80, we're done -> use BPL.
-	bpl .copy_outer_loop
-	// Scram.  Y must be zero here.
-	jmp boot_continue
+	stx.b {ram_zp_request_A000_bank}
+	jmp {rom_prg_bank_switch}
 
-.chr_rom_bank_table:
-	// MMC3 values to write to the first 6 MMC3 bank registers (CHR space).
-	db $00, $02, $04, $05, $06, $07
+.fill_vram:
+	// Copy the relocatable routine at $C3D5 here to open up more space.
+	incbin "Rockman 4 - Aratanaru Yabou!! (Japan).nes", $10 + ($3E * $2000) + ($C3D5 & $1FFF), $C421 - $C3D5
 
-	{warnpc $FE7F}
-{loadpc}
-
-// Continuation of init code.
-boot_continue:
-	// Copy the code we replaced to here.  It's relocatable.
-	// Note that Y is already zero.
-	incbin "Rockman 4 - Aratanaru Yabou!! (Japan).nes", $10 + ($3F * $2000) + ($FE39 & $1FFF), $FE7F - $FE39
-	// We now resume our regularly scheduled programming.
-	jmp $FE7F
-
-
-// Make the game switch to CHR-RAM like it expects.  We need to set the 40 bit
-// of the original values.  (The code that reads this table is copied by the
-// incbin above, but that's fine.)
-{savepc}
-	{reorg $3F, $FFAD}
+.chr_ram_banks:
 	db $40, $42, $44, $45, $46, $47
+.chr_ram_banks_end:
+
+
+	// Delete the tail end of main_loop both so that we get control and so
+	// that we can reuse its space.
+	{savepc}
+	{reorg $3E, $C7F6}
+	lda.b #3
+	sta.b {ram_zp_request_8000_bank}
+	jsr {rom_prg_bank_switch}
+	jmp end_level_hook
+
+	// And here's what we replace it with.
+	// Lookup table to convert a binary value to BCD.
+bcd_table:
+	incsrc "bcdtable50.asm"
+	{warnpc $C846}
+	{loadpc}
+
+end_level_hook:
+	// I don't know what this code does.
+	lda.b {ram_zp_current_level}
+	sta.w $0147
+	lda.b #0
+	sta.b $9A
+	sta.w $06F0
+	sta.w $06F1
+	sta.w $06F2
+	sta.w $06F3
+
+	// Why did the level end?
+	// Note that we ignore $13 (play ending) so ending never plays.
+	lda.b {ram_zp_rockman_state}
+	cmp.b #$07
+	beq .death
+	cmp.b #$11
+	beq .got_balloon_or_wire
+
+	// Exit the level.  Do some shenanigans here to set up the return addresses
+	// when we can't JSR directly.
+	lda.b #0
+	sta.b $1F
+	jsr $C846
+
+	// After the bank switch, call 39:8003 then jump to C541.
+	lda.b #($C541 - 1) >> 8
+	pha
+	lda.b #($C541 - 1) & $FF
+	pha
+	lda.b #($8003 - 1) >> 8
+	pha
+	lda.b #($8003 - 1) & $FF
+	pha
+	lda.b #$39
+	sta.b {ram_zp_request_8000_bank}
+	jmp {rom_prg_bank_switch}
+
+.death:
+.got_balloon_or_wire:
+	// In both these cases, just reload the level at the midpoint.
+	// This patch also has the side effect of infinite lives.
+	lda.b #0
+	sta.b $9A
+
+	// More fun with the stack.
+	lda.b #($C541 - 1) >> 8
+	pha
+	lda.b #($C541 - 1) & $FF
+	pha
+	lda.b #$39
+	sta.b {ram_zp_request_8000_bank}
+	jmp {rom_prg_bank_switch}
+
+	{warnpc $8900}
 {loadpc}
 
 
-// NMI hook.  I copied the Rockman 3 practice ROM's hook code.
+// Code that must go into banks 3E/3F.
 {savepc}
-	{reorg $3E, $C0ED}
-	jmp nmi_hook
-{loadpc}
+	{reorg $3E, $C3D5}
+
+	// NMI hook.  I copied the Rockman 3 practice ROM's hook code.
 nmi_hook:
 	// First deleted instruction.
 	inc.b $92
 
 	// Increment frame counter.
-	inc.w current_time_frames
-	lda.w current_time_frames
+	inc.w {current_time_frames}
+	lda.w {current_time_frames}
 	cmp.b #60
 	bne .no_carry
-	inc.w current_time_seconds
+	inc.w {current_time_seconds}
 	lda.b #0
-	sta.w current_time_frames
+	sta.w {current_time_frames}
 .no_carry:
 
 	// Second deleted instruction.
@@ -231,21 +335,46 @@ nmi_hook:
 	jmp $C0F1
 
 
-// Called when loading a level, right before READY appears.
-// Initialize the frame timer here.
-{savepc}
-	{reorg $3E, $C642}
-	jmp init_level_hook
-{loadpc}
+	// Called when loading a level, right before READY appears.
 init_level_hook:
 	// Clear the timers.
 	lda.b #0
-	sta.w current_time_seconds
-	sta.w current_time_frames
+	sta.w {current_time_seconds}
+	sta.w {current_time_frames}
 	// Deleted code (creates Rockman object?).
 	lda.b #1
 	sta.w $0300
 	jmp $C647
+
+
+	// Called during normal gameplay.
+oam_hook_normal:
+	// Set normal CHR-RAM mode.
+	lda.b #3
+	ldx.b #$45
+	sta.w $8000
+	stx.w $8001
+	// Copy timer.  When we stop executing, that's the value to display.
+	// Technically, this should be a loop in case NMI increments during the
+	// middle here, but that is *extremely* unlikely to cause a problem.
+//.latch_loop:
+	lda.w {current_time_frames}
+	sta.w {last_time_frames}
+	ldx.w {current_time_seconds}
+	stx.w {last_time_seconds}
+	//cmp.w current_time_frames
+	//bne .latch_loop
+	jmp $C421
+
+
+	{warnpc $C421}
+
+	// Overwrites that jump into the above code.
+	{reorg $3E, $C0ED}
+	jmp nmi_hook
+	{reorg $3E, $C642}
+	//jmp init_level_hook
+{loadpc}
 
 
 // Hook the OAM clear code during various points.
@@ -261,25 +390,15 @@ init_level_hook:
 	jsr oam_hook_transition
 {loadpc}
 
-oam_hook_normal:
-	// Set normal CHR-RAM mode.
-	lda.b #3
-	ldx.b #$45
-	sta.w $8000
-	stx.w $8001
-	// Copy timer.  When we stop executing, that's the value to display.
-	// Technically, this should be a loop in case NMI increments during the
-	// middle here, but that is *extremely* unlikely to cause a problem.
-//.latch_loop:
-	lda.w current_time_frames
-	sta.w last_time_frames
-	ldx.w current_time_seconds
-	stx.w last_time_seconds
-	//cmp.w current_time_frames
-	//bne .latch_loop
-	jmp $C421
 
+// Main code to draw times during transition screens.
+{savepc}
+	{reorg $3F, $FE0E}
 oam_hook_transition:
+	// Normal mode - use original sprite table.
+	lda.b #0
+	sta.w {sprite_tile_select}
+
 	// Call original function.
 	jsr $C421
 
@@ -292,90 +411,91 @@ oam_hook_transition:
 	// Zero current time while we're in this function.  Write frames before
 	// seconds to prevent NMI doing a carry (only one NMI can occur here).
 	lda.b #0
-	sta.w current_time_frames
-	sta.w current_time_seconds
+	sta.w {current_time_frames}
+	sta.w {current_time_seconds}
 
 	// Build the sprite records for the time display.
-
-	// This layout copies the Rockman 3 practice ROM.
-	// Y coordinate.
+	// This is size-optimized rather than speed-optimized.
+	ldx.b #16
+.sprite_loop:
 	lda.b #16
-	sta.w $0204
-	sta.w $0208
-	sta.w $020C
-	sta.w $0210
-	sta.w $0214
-
-	// Attributes/palette.
+	sta.w $0204, x          // Y coordinate
 	lda.b #%00000001
-	sta.w $0206
-	sta.w $020A
-	sta.w $020E
-	sta.w $0212
-	sta.w $0216
-
-	// X coordinate.
-	lda.b #208 + (8 * 0)
-	sta.w $0207
-	lda.b #208 + (8 * 1)
-	sta.w $020B
-	lda.b #208 + (8 * 2)
-	sta.w $020F
-	lda.b #208 + (8 * 3)
-	sta.w $0213
-	lda.b #208 + (8 * 4)
-	sta.w $0217
+	sta.w $0206, x          // attributes and palette
+	txa
+	asl                     // add 8 each round
+	adc.b #208
+	sta.w $0207, x          // X coordinate
+	dex
+	dex
+	dex
+	dex
+	bpl .sprite_loop
 
 	// Tile IDs.
 	// Apostrophe.
 	lda.b #$4C
 	sta.w $020D
 
-	ldx.w last_time_seconds
-	lda.w bcd_table, x
-	tax
-	and.b #$0F
-	tay
-	lda sprite_tile_table, y
-	sta.w $0209
-	txa
-	lsr
-	lsr
-	lsr
-	lsr
-	tay
-	lda sprite_tile_table, y
-	sta.w $0205
-	
-	ldx.w last_time_frames
-	lda.w bcd_table, x
-	tax
-	and.b #$0F
-	tay
-	lda sprite_tile_table, y
-	sta.w $0215
-	txa
-	lsr
-	lsr
-	lsr
-	lsr
-	tay
-	lda sprite_tile_table, y
-	sta.w $0211
-
 	// This is supposed to point to the next available slot in the OAM buffer.
 	lda.b #$18
 	sta.b $97
 
+	// Use the double-return trick to execute the below code twice.
+	ldx.b #0
+	ldy.w {last_time_seconds}
+	jsr .repeat
+	ldx.b #12
+	ldy.w {last_time_frames}
+.repeat:
+	cpy.b #50
+	bcs .fifty
+	lda bcd_table, y
+	bpl .not_fifty         // bcd_value has only $00-$49, so bpl always branches.
+.fifty:
+	lda bcd_table - 50, y
+	adc.b #$50 - 1         // we know carry is set, because bcs branched here.
+.not_fifty:
+	pha
+	and.b #$0F
+	clc
+	adc.w {sprite_tile_select}
+	tay
+	lda sprite_tile_table, y
+	sta.w $0209, x
+	pla
+	lsr
+	lsr
+	lsr
+	lsr
+	clc
+	adc.w {sprite_tile_select}
+	tay
+	lda sprite_tile_table, y
+	sta.w $0205, x
+	
 	// Done.
 	rts
 
+// Mapping from numbers to sprite IDs.
+sprite_tile_table:
+	// Screen transition version:
+	db $5A, $5B, $6A, $6B, $7E, $7F, $60, $61, $62, $63
+	// Boss kill, death animation version:
+	db $5A, $5B, $6A, $6B, $7E, $7F, $60, $61, $62, $63
 
-// Hook the code to load the stage select background.
-{savepc}
-	{reorg $39, $84AA}
-	jsr show_screen_hook
+	{warnpc $FEA5}
 {loadpc}
+
+
+// Immediately return to level select after a stage ends.
+{savepc}
+	{reorg $39, $8C6B}
+	jmp $8ECA
+
+	// Because we just deleted a giant function, we can use the rest of its space.
+
+	// Hook the code to load the stage select background.
 show_screen_hook:
 	// Original function.
 	// We need to do this first, because we overwrite what it puts into VRAM.
@@ -388,66 +508,99 @@ show_screen_hook:
 	lda.b $2A
 	cmp.b #0
 	bne .not_stage_select
-
-	// Save X, which the target routine depends on.
-	txa
-	pha
-	// Copy our alternate stage select screen to the second nametable.
-	lda.w $2002   // reset latch
-	lda.b #$28
-	sta.w $2006
-	lda.b #$00
-	sta.w $2006
-	tax
-.loop_0:
-	lda.w tilemap_second_level_select + $000, x
-	sta.w $2007
-	inx
-	bne .loop_0
-.loop_1:
-	lda.w tilemap_second_level_select + $100, x
-	sta.w $2007
-	inx
-	bne .loop_1
-.loop_2:
-	lda.w tilemap_second_level_select + $200, x
-	sta.w $2007
-	inx
-	bne .loop_2
-.loop_3:
-	lda.w tilemap_second_level_select + $300, x
-	sta.w $2007
-	inx
-	bne .loop_3
-
-	// Overwrite "CAPCOM" from "CAPCOM PRESENTS" with the Dr. Wily logo,
-	// since we don't need that bitmap anymore for stage select.
-	lda.w $2002   // reset latch
-	lda.b #($0000 + ($4A * $10)) >> 8
-	sta.w $2006
-	lda.b #($0000 + ($4A * $10)) & $FF
-	sta.w $2006
-	ldx.b #0
-.loop_drwily:
-	lda.w tiles_drwily_logo, x
-	sta.w $2007
-	inx
-	cpx.b #tiles_drwily_logo.end - tiles_drwily_logo
-	bne .loop_drwily
-
-	// Restore saved X.
-	pla
-	tax
-
-	// While we're here, clear out the completed stages list.
-	lda.b #$00
-	sta.b {ram_zp_completed_stages}
-	sta.b {ram_zp_completed_stages} + 1
+	beq .yes_stage_select
 
 .not_stage_select:
 	// Return to caller.
 	rts
 
+.yes_stage_select:
+	// Save X, which the target routine depends on.
+	txa
+	pha
+	// Save current A000 bank.
+	lda.b {ram_zp_request_A000_bank}
+	pha
+
+	// Do the VRAM copies.
+	ldx.b #0
+.copy_outer_loop:
+	lda.w .copy_table, x
+	bmi .copy_done
+	// First byte is bank to read from.  rom_prg_bank_switch saves X.
+	sta.b {ram_zp_request_A000_bank}
+	jsr {rom_prg_bank_switch}
+	// Second byte is length.  $00 means $100.
+	inx
+	lda.w .copy_table, x
+	inx
+	sta.b $02
+	// Third and fourth bytes are the VRAM address.
+	// Note that 2006 takes the high byte first.
+	lda.w $2002                 // reset address latch
+	lda.w .copy_table + 1, x
+	sta.w $2006
+	lda.w .copy_table, x
+	sta.w $2006
+	inx
+	inx
+	// Fifth and sixth bytes are where to read from.
+	lda.w .copy_table, x
+	inx
+	sta.b $00
+	lda.w .copy_table, x
+	inx
+	sta.b $01
+	// Copy data to VRAM.
+	ldy.b #0
+.copy_inner_loop:
+	lda ($00), y
+	sta.w $2007
+	iny
+	cpy.b $02
+	bne .copy_inner_loop
+	beq .copy_outer_loop
+
+.copy_done:
+	// While we're here, clear out the completed stages list.
+	lda.b #$00
+	sta.b {ram_zp_completed_stages}
+	sta.b {ram_zp_completed_stages} + 1
+
+	// Restore original bank and X value.
+	pla
+	sta.b {ram_zp_request_A000_bank}
+	jsr {rom_prg_bank_switch}
+	pla
+	tax
+	rts
+
+.copy_table:
+	// Table of ROM addresses to copy to VRAM.
+	// Copy tilemap_second_level_select to VRAM 2800.
+	db $27, $100 & $FF
+	dw $2800, ((tilemap_second_level_select + $000) & $1FFF) + $A000
+	db $27, $100 & $FF
+	dw $2900, ((tilemap_second_level_select + $100) & $1FFF) + $A000
+	db $27, $100 & $FF
+	dw $2A00, ((tilemap_second_level_select + $200) & $1FFF) + $A000
+	db $27, $100 & $FF
+	dw $2B00, ((tilemap_second_level_select + $300) & $1FFF) + $A000
+	// Overwrite "CAPCOM" from "CAPCOM PRESENTS" with the Dr. Wily logo,
+	// since we don't need that bitmap anymore for stage select.
+	db $27, tiles_drwily_logo.end - tiles_drwily_logo
+	dw $0000 + ($4A * $10), (tiles_drwily_logo & $1FFF) + $A000
+	// End of table.
+	db $FF
+	{warnpc $8ECA}
+{loadpc}
+
+
+// Hook the code to load the stage select background.
+{savepc}
+	{reorg $39, $84AA}
+	jsr show_screen_hook
+{loadpc}
 
 // Hack what happens when a level is chosen.
 // We can delete a lot of code here.  Most of it is either checks we don't
@@ -466,7 +619,7 @@ level_select_choose:
 	adc.b $11
 	tay
 	// Select which table to use based on whether Cossack/Wily list shows.
-	lda.b {ram_zp_2000_shadow}
+	lda.b {ram_zp_2000_shadow_1}
 	and.b #%00000010
 	beq .original_table
 	lda .cossack_wily_table, y
@@ -480,9 +633,9 @@ level_select_choose:
 
 	// Middle option means to switch screens.  We switch screens by setting
 	// the primary nametable to $2800 instead of $2000.
-	lda.b {ram_zp_2000_shadow}
+	lda.b {ram_zp_2000_shadow_1}
 	eor.b #%00000010
-	sta.b {ram_zp_2000_shadow}
+	sta.b {ram_zp_2000_shadow_1}
 
 	// If the shadow just became zero, restore the original sprites' Y locations.
 	// Otherwise, hide the sprites.
@@ -543,22 +696,20 @@ level_select_choose:
 	// Map from the 9 cursor position to levels.
 	db 8, 9, 10, 11, $FF, 12, 13, 14, 15
 
+// The Y positions of the sprites on the stage select screen.
+// We use this to restore when flipping "pages".
+level_select_sprite_y_table:
+	incbin "sprite-y-positions.bin"
+.end:
+
 	// We can overwrite all the way through the Cossack castle intro code.
 	{warnpc $8209}
 {loadpc}
 
 
-// Lookup table to convert a binary value to BCD.
-bcd_table:
-incsrc "bcdtable.asm"
-
-// Mapping from numbers to sprite IDs.
-sprite_tile_table:
-	// Screen transition version:
-	db $5A, $5B, $6A, $6B, $7E, $7F, $60, $61, $62, $63
-	// Boss kill, death animation version:
-	db $5A, $5B, $6A, $6B, $7E, $7F, $60, $61, $62, $63
-
+// Bank $27 overwrites.
+{savepc}
+	{reorg $27, $B800}
 
 // Tilemap layout for when the player hits select.
 tilemap_second_level_select:
@@ -569,25 +720,5 @@ tiles_drwily_logo:
 	incbin "drwily-logo.bin"
 .end:
 
-// The Y positions of the sprites on the stage select screen.
-// We use this to restore when flipping "pages".
-level_select_sprite_y_table:
-	incbin "sprite-y-positions.bin"
-.end:
-
-
-// RAM variables.  Designed similarly to the Rockman 3 practice ROM.
-
-// Number of seconds and frames that've elapsed since last screen transition.
-current_time_seconds:
-	db 0
-current_time_frames:
-	db 0
-// Number of seconds and frames we're displaying.
-last_time_seconds:
-	db 0
-last_time_frames:
-	db 0
-
-
-{warnpc $7FFF}
+	{warnpc $C000}
+{savepc}
