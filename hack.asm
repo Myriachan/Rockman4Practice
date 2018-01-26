@@ -501,6 +501,11 @@ show_screen_hook:
 	// We need to do this first, because we overwrite what it puts into VRAM.
 	jsr $DA05
 
+	// The previous MMC3 mirroring setting remains.  If the previous level was
+	// vertically-oriented when the level exited, we need to reset the mirroring.
+	lda.b #%00000001
+	sta.w $A000
+
 	// Is this going to display stage select?
 	lda.b $10
 	cmp.b #2
