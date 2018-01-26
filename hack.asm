@@ -137,6 +137,12 @@ incbin "numbersprites.bin", 9 * $10, $10
 
 {loadpc}
 
+// Boss HP fills immediately
+{savepc}
+	{reorg $35, $A866}
+	lda.b #$1C
+	sta.b $BF
+{loadpc}
 
 // Hook the reset sequence to load our code from CHR-ROM to PRG-RAM.
 {savepc}
