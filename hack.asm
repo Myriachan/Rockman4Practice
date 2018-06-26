@@ -33,6 +33,8 @@ define ram_zp_request_A000_bank $00F6
 define ram_zp_2000_shadow_1 $00FD
 define ram_zp_2000_shadow_2 $00FF
 define rom_bank39_level_id_map $8860
+define rom_force_blank_on $C369
+define rom_force_blank_off $C373
 define rom_play_sound $F6BE
 define rom_coroutine_yield $FF1C
 define rom_prg_bank_switch $FF37
@@ -495,38 +497,39 @@ sprite_tile_table:
 // Immediately return to level select after a stage ends.
 {savepc}
 	{reorg $39, $8C6B}
+	// Address of level select routine.
 	jmp $8ECA
 
 	// Because we just deleted a giant function, we can use the rest of its space.
 
 	// Hook the code to load the stage select background.
 show_screen_hook:
-	// Original function.
-	// We need to do this first, because we overwrite what it puts into VRAM.
-	jsr $DA05
+	// A contains the previous value of $10, which we check to determine whether
+	// the screen being loaded is stage select.
+	cmp.b #2
+	bne .return
+	lda.b $2A
+	cmp.b #0
+	bne .return
+	beq .yes_stage_select
+		
+.return:
+	// Return to caller.  Reload A, then multiply by 8 for the deleted code.
+	lda.b $10
+	asl
+	asl
+	asl
+	rts
+
+.yes_stage_select:
+	// Force blanking here, and stop NMI from messing with us.
+	jsr {rom_force_blank_on}
 
 	// The previous MMC3 mirroring setting remains.  If the previous level was
 	// vertically-oriented when the level exited, we need to reset the mirroring.
 	lda.b #%00000001
 	sta.w $A000
 
-	// Is this going to display stage select?
-	lda.b $10
-	cmp.b #2
-	bne .not_stage_select
-	lda.b $2A
-	cmp.b #0
-	bne .not_stage_select
-	beq .yes_stage_select
-
-.not_stage_select:
-	// Return to caller.
-	rts
-
-.yes_stage_select:
-	// Save X, which the target routine depends on.
-	txa
-	pha
 	// Save current A000 bank.
 	lda.b {ram_zp_request_A000_bank}
 	pha
@@ -576,17 +579,27 @@ show_screen_hook:
 	sta.b {ram_zp_completed_stages}
 	sta.b {ram_zp_completed_stages} + 1
 
-	// Restore original bank and X value.
+	// Disable force blank and continue.
+	jsr {rom_force_blank_off}
+
+	// Restore original bank and return.
 	pla
 	sta.b {ram_zp_request_A000_bank}
 	jsr {rom_prg_bank_switch}
-	pla
-	tax
-	rts
+	jmp .return
 
 .copy_table:
 	// Table of ROM addresses to copy to VRAM.
+	// Add "COSSACK & WILY" text to robot master selection screen.
+	db $27, tilemap_cossack_name.end - tilemap_cossack_name
+	dw $222C, (tilemap_cossack_name & $1FFF) + $A000
+	db $27, tilemap_andwily_name.end - tilemap_andwily_name
+	dw $224C, (tilemap_andwily_name & $1FFF) + $A000
+	// Ampersand for "COSSACK & WILY".
+	db $27, tiles_ampersand.end - tiles_ampersand
+	dw $0000 + ($FA * $10), (tiles_ampersand & $1FFF) + $A000
 	// Copy tilemap_second_level_select to VRAM 2800.
+	// This has the Cossack and Wily stage select.
 	db $27, $100 & $FF
 	dw $2800, ((tilemap_second_level_select + $000) & $1FFF) + $A000
 	db $27, $100 & $FF
@@ -604,12 +617,12 @@ show_screen_hook:
 	{warnpc $8ECA}
 {loadpc}
 
-
 // Hook the code to load the stage select background.
 {savepc}
-	{reorg $39, $84AA}
+	{reorg $39, $84C9}
 	jsr show_screen_hook
 {loadpc}
+
 
 // Hack what happens when a level is chosen.
 // We can delete a lot of code here.  Most of it is either checks we don't
@@ -863,6 +876,37 @@ tilemap_second_level_select:
 // Bitmap data for the Dr. Wily logo.
 tiles_drwily_logo:
 	incbin "drwily-logo.bin"
+.end:
+
+// Bitmap data for an ampersand.
+tiles_ampersand:
+	db %11110111
+	db %10001011
+	db %01010111
+	db %10101111
+	db %11010101
+	db %10101011
+	db %01110110
+	db %10001001
+
+	db %10001111 & %11110111
+	db %01110111 & %10001011
+	db %10101111 & %01010111
+	db %11011111 & %10101111
+	db %10101011 & %11010101
+	db %01110111 & %10101011
+	db %10001001 & %01110110
+	db %11111111 & %10001001
+.end:
+
+// Tilemap for "COSSACK".
+tilemap_cossack_name:
+	db $82, $8E, $92, $92, $80, $82, $8A
+.end:
+
+// Tilemap for " & WILY".
+tilemap_andwily_name:
+	db $10, $FA, $10, $96, $88, $8B, $98
 .end:
 
 	{warnpc $C000}
