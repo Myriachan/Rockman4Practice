@@ -1,4 +1,4 @@
- // The assembler I'm using doesn't know 6502, hehe.
+// The assembler I'm using doesn't know 6502, hehe.
 arch snes.cpu
 
 // Macro to change where we are
@@ -341,18 +341,6 @@ nmi_hook:
 	jmp $C0F1
 
 
-	// Called when loading a level, right before READY appears.
-init_level_hook:
-	// Clear the timers.
-	lda.b #0
-	sta.w {current_time_seconds}
-	sta.w {current_time_frames}
-	// Deleted code (creates Rockman object?).
-	lda.b #1
-	sta.w $0300
-	jmp $C647
-
-
 	// Called during normal gameplay.
 oam_hook_normal:
 	// Set normal CHR-RAM mode.
@@ -378,8 +366,6 @@ oam_hook_normal:
 	// Overwrites that jump into the above code.
 	{reorg $3E, $C0ED}
 	jmp nmi_hook
-	{reorg $3E, $C642}
-	//jmp init_level_hook
 {loadpc}
 
 
@@ -614,13 +600,56 @@ show_screen_hook:
 	dw $0000 + ($4A * $10), (tiles_drwily_logo & $1FFF) + $A000
 	// End of table.
 	db $FF
+
+
+// Clear the timer when teleporting into a level.
+// This actually gets mapped to the A000 bank because we call it from the
+// 8000 bank.
+teleport_in_hook:
+	// Clear the timers.
+	lda.b #0
+	sta.w {current_time_seconds}
+	sta.w {current_time_frames}
+	// Deleted code (except the lda #0)
+	sta.b {ram_zp_rockman_state}
+	sta.b $A3
+	sta.b $A7
+	sta.b $A8
+	lda.b #1
+	sta.b $31
+	sta.w $0420
+	// Return to caller.
+	sty.b {ram_zp_request_A000_bank}
+	jmp {rom_prg_bank_switch}
 	{warnpc $8ECA}
+
 {loadpc}
+
 
 // Hook the code to load the stage select background.
 {savepc}
 	{reorg $39, $84C9}
 	jsr show_screen_hook
+{loadpc}
+
+
+// Hook teleporting into a level.
+{savepc}
+	{reorg $3C, $875E}
+	// The target above is assembled as if in the 8000 bank,
+	// but we're calling it in the A000 bank.
+	// WARNING: THIS PATCH MUST BE EXACTLY 17 BYTES.
+	lda.b {ram_zp_request_A000_bank}
+	tay
+	lda.b #$39
+	sta.b {ram_zp_request_A000_bank}
+	jsr {rom_prg_bank_switch}
+	jsr teleport_in_hook + $2000
+	nop
+	nop
+	nop
+	nop
+	{warnpc $876F}
 {loadpc}
 
 

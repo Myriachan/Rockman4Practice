@@ -73,7 +73,7 @@ Free space in ROM (larger than 256 bytes):
 0030 = rockman state?
      00 = normal
      01 = jumping/falling
-     02 = landing
+     02 = landing and sliding
      03 = unknown; gets cleared immediately
      04 = unknown and weird
      05 = can't move (unknown reason)
@@ -112,3 +112,4 @@ Free space in ROM (larger than 256 bytes):
 00BD = (Skull) Skull Barrier energy
 00FA = Y scroll coordinate written during NMI
 00FC = X scroll coordinate written during NMI
+0148 = countdown timer before stage exit after defeating boss
