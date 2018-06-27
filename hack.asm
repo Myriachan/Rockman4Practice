@@ -621,8 +621,9 @@ teleport_in_hook:
 	// Return to caller.
 	sty.b {ram_zp_request_A000_bank}
 	jmp {rom_prg_bank_switch}
-	{warnpc $8ECA}
 
+
+	{warnpc $8ECA}
 {loadpc}
 
 
@@ -889,8 +890,9 @@ pause_screen_hook:
 	nop
 	nop
 	// Hurry up E-tank refills.
-	{reorg $3C, $9704}
-	ldx.b #2
+	// Disabled this hack until I hear whether this would interfere with timing.
+	//{reorg $3C, $9704}
+	//ldx.b #2
 {loadpc}
 
 
