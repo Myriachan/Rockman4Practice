@@ -857,9 +857,9 @@ pause_screen_hook:
 	jmp {rom_prg_bank_switch}
 .use_etank:
 	// Return address.
-	lda.b #($96F4 - 1) >> 8
+	lda.b #($96E8 - 1) >> 8
 	pha
-	lda.b #($96F4 - 1) & $FF
+	lda.b #($96E8 - 1) & $FF
 	pha
 	sty.b {ram_zp_request_A000_bank}
 	jmp {rom_prg_bank_switch}
