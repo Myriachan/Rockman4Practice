@@ -84,12 +84,12 @@ Free space in ROM (larger than 256 bytes):
      0A = can't move (used for READY)
      0B = frozen in place for level end.  when timer (0148) expires, changes to 08.
      0C = damage and knockback together
-     0D = walk in place (horizontal transition or for cutscene)
+     0D = walk in place (horizontal transition or for cutscene after Cossack 4)
      0E = can't move (cutscene)
      0F = teleporter in wily 3
      10 = instantly moves to a specific horizontal position
      11 = teleport (balloon/wire), ports to current stage's first midpoint
-     12 = walk in place (horizontal transition also?)
+     12 = walk in place (after final hit on Wily capsule)
      13 = teleport (completed wily 4), plays ending, but music stays on
 0097 = next available slot in OAM
 00A1 = lives

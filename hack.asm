@@ -172,6 +172,7 @@ incbin "numbersprites.bin", 9 * $10, $10
 	jmp reset_moved
 	{warnpc $FE0E}
 
+
 	// Some unused space ($500 bytes) in bank 3.
 	{reorg $03, $8400}
 	// Continuation of reset code.
@@ -269,6 +270,8 @@ end_level_hook:
 	sta.w $06F1
 	sta.w $06F2
 	sta.w $06F3
+	// The level ended, so clear a timer latch if one is present.
+	sta.w {sprite_tile_select}
 
 	// Why did the level end?
 	// Note that we ignore $13 (play ending) so ending never plays.
@@ -313,91 +316,20 @@ end_level_hook:
 	sta.b {ram_zp_request_8000_bank}
 	jmp {rom_prg_bank_switch}
 
-	{warnpc $8900}
-{loadpc}
 
-
-// Code that must go into banks 3E/3F.
-{savepc}
-	{reorg $3E, $C3D5}
-
-	// NMI hook.  I copied the Rockman 3 practice ROM's hook code.
-nmi_hook:
-	// First deleted instruction.
-	inc.b $92
-
-	// Increment frame counter.
-	inc.w {current_time_frames}
-	lda.w {current_time_frames}
-	cmp.b #60
-	bne .no_carry
-	inc.w {current_time_seconds}
-	lda.b #0
-	sta.w {current_time_frames}
-.no_carry:
-
-	// Second deleted instruction.
-	ldx.b #$FF
-	jmp $C0F1
-
-
-	// Called during normal gameplay.
-oam_hook_normal:
-	// Set normal CHR-RAM mode.
-	lda.b #3
-	ldx.b #$45
-	sta.w $8000
-	stx.w $8001
-	// Copy timer.  When we stop executing, that's the value to display.
-	// Technically, this should be a loop in case NMI increments during the
-	// middle here, but that is *extremely* unlikely to cause a problem.
-//.latch_loop:
-	lda.w {current_time_frames}
-	sta.w {last_time_frames}
-	ldx.w {current_time_seconds}
-	stx.w {last_time_seconds}
-	//cmp.w current_time_frames
-	//bne .latch_loop
-	jmp $C421
-
-
-	{warnpc $C421}
-
-	// Overwrites that jump into the above code.
-	{reorg $3E, $C0ED}
-	jmp nmi_hook
-{loadpc}
-
-
-// Hook the OAM clear code during various points.
-{savepc}
-	// Called during normal operation.
-	{reorg $3E, $C7B8}
-	jsr oam_hook_normal
-	// Called during horizontal screen transitions.
-	{reorg $3E, $CBC3}
-	jsr oam_hook_transition
-	// Called during vertical screen transitions.
-	{reorg $3E, $CE52}
-	jsr oam_hook_transition
-{loadpc}
-
-
-// Main code to draw times during transition screens.
-{savepc}
-	{reorg $3F, $FE0E}
-oam_hook_transition:
-	// Normal mode - use original sprite table.
-	lda.b #0
-	sta.w {sprite_tile_select}
-
-	// Call original function.
-	jsr $C421
-
-	// Switch to the non-death CHR-ROM bank.
-	lda.b #3
+// We jump here when oam_hook_* decides that we should draw the timer.
+draw_timer:
+	// Switch to the selected CHR-ROM bank.
+	// Zero low part = screen transition version
+	// Nonzero low part = boss kill version
+	ldy.b #3
 	ldx.b #$00
-	sta.w $8000
+	lda.w {sprite_tile_select}
+	and.b #$7F
+	beq .screen_transition_version
+	inx
+.screen_transition_version:
+	sty.w $8000
 	stx.w $8001
 
 	// Zero current time while we're in this function.  Write frames before
@@ -452,6 +384,7 @@ oam_hook_transition:
 	and.b #$0F
 	clc
 	adc.w {sprite_tile_select}
+	and.b #$7F
 	tay
 	lda sprite_tile_table, y
 	sta.w $0209, x
@@ -462,6 +395,7 @@ oam_hook_transition:
 	lsr
 	clc
 	adc.w {sprite_tile_select}
+	and.b #$7F
 	tay
 	lda sprite_tile_table, y
 	sta.w $0205, x
@@ -474,7 +408,115 @@ sprite_tile_table:
 	// Screen transition version:
 	db $5A, $5B, $6A, $6B, $7E, $7F, $60, $61, $62, $63
 	// Boss kill, death animation version:
-	db $5A, $5B, $6A, $6B, $7E, $7F, $60, $61, $62, $63
+	db $5A, $5B, $6A, $6B, $7E, $7F, $4E, $4F, $5E, $5F
+
+	{warnpc $8900}
+{loadpc}
+
+
+// Code that must go into banks 3E/3F.
+{savepc}
+	{reorg $3E, $C3D5}
+
+	// NMI hook.  I copied the Rockman 3 practice ROM's hook code.
+nmi_hook:
+	// First deleted instruction.
+	inc.b $92
+
+	// Increment frame counter.
+	inc.w {current_time_frames}
+	lda.w {current_time_frames}
+	cmp.b #60
+	bne .no_carry
+	inc.w {current_time_seconds}
+	lda.b #0
+	sta.w {current_time_frames}
+.no_carry:
+
+	// Second deleted instruction.
+	ldx.b #$FF
+	jmp $C0F1
+
+
+	// Called during normal gameplay.
+oam_hook_normal:
+	// Check for timer being forced on until level exit.
+	lda.w {sprite_tile_select}
+	bmi .forced_on
+	// Otherwise, check for reasons we might switch to force on.
+	lda.b {ram_zp_rockman_state}
+	cmp.b #$0B   // level end
+	beq .forced_on
+	cmp.b #$11   // got balloon/wire
+	beq .forced_on
+
+	// Set normal CHR-RAM mode.
+	lda.b #3
+	ldx.b #$45
+	sta.w $8000
+	stx.w $8001
+	// Copy timer.  When we stop executing, that's the value to display.
+	// Technically, this should be a loop in case NMI increments during the
+	// middle here, but that is *extremely* unlikely to cause a problem.
+//.latch_loop:
+	lda.w {current_time_frames}
+	sta.w {last_time_frames}
+	ldx.w {current_time_seconds}
+	stx.w {last_time_seconds}
+	//cmp.w {current_time_frames}
+	//bne .latch_loop
+	jmp $C421
+
+.forced_on:
+	jmp oam_hook_forced_on
+
+	{warnpc $C421}
+
+	// Overwrites that jump into the above code.
+	{reorg $3E, $C0ED}
+	jmp nmi_hook
+{loadpc}
+
+
+// Hook the OAM clear code during various points.
+{savepc}
+	// Called during normal operation.
+	{reorg $3E, $C7B8}
+	jsr oam_hook_normal
+	// Called during horizontal screen transitions.
+	{reorg $3E, $CBC3}
+	jsr oam_hook_transition
+	// Called during vertical screen transitions.
+	{reorg $3E, $CE52}
+	jsr oam_hook_transition
+{loadpc}
+
+
+// Main code to draw times during transition screens.
+{savepc}
+	{reorg $3F, $FE0E}
+
+oam_hook_forced_on:
+	// Use alternate sprite set
+	lda.b #$80 + 10
+	sta.w {sprite_tile_select}
+	bmi oam_hook_transition.external   // branch always
+
+oam_hook_transition:
+	// Normal mode - use original sprite table.
+	lda.b #$00
+	sta.w {sprite_tile_select}
+
+.external:
+	// Call original function.
+	jsr $C421
+
+	// Jump to where we have more space.
+	lda.b #$03
+	sta.b {ram_zp_request_8000_bank}
+	jsr {rom_prg_bank_switch}
+	
+	jmp draw_timer
 
 	{warnpc $FEA5}
 {loadpc}
