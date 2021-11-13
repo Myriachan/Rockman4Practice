@@ -838,6 +838,9 @@ level_select_sprite_y_table:
 .end:
 
 // Table of what weapons to give you on each stage.
+// Some players route Bright Man before Pharaoh Man.  To support practicing
+// this route, selecting Pharaoh Man gives Flash Stopper.  This will simply
+// be ignored by Pharaoh-first runners.
 weapon_give_table:
 	//  DCBA9876543210
 	// 2. Bright Man            (player gets Balloon during Pharaoh)
@@ -846,8 +849,8 @@ weapon_give_table:
 	dw %11111111000111
 	// 7. Drill Man
 	dw %11110111000011
-	// 1. Pharoah Man
-	dw %00000000000011
+	// 1. Pharaoh Man           (Flash Stopper given by this option; see above note)
+	dw %01000000000011
 	// 3. Ring Man
 	dw %01100001000011
 	// 4. Dust Man
