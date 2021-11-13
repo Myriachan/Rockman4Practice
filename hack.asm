@@ -440,16 +440,16 @@ nmi_hook:
 
 	// Called during normal gameplay.
 oam_hook_normal:
+	// Based on current Rockman state, decide what to do.
+	ldx.b {ram_zp_rockman_state}
+	lda.w oam_hook_state_table, x
+	bmi .forced_off
+	bne .forced_on
 	// Check for timer being forced on until level exit.
 	lda.w {sprite_tile_select}
 	bmi .forced_on
-	// Otherwise, check for reasons we might switch to force on.
-	lda.b {ram_zp_rockman_state}
-	cmp.b #$0B   // level end
-	beq .forced_on
-	cmp.b #$11   // got balloon/wire
-	beq .forced_on
 
+.normal_mode:
 	// Set normal CHR-RAM mode.
 	lda.b #3
 	ldx.b #$45
@@ -469,6 +469,8 @@ oam_hook_normal:
 
 .forced_on:
 	jmp oam_hook_forced_on
+.forced_off:
+	jmp oam_hook_forced_off
 
 	{warnpc $C421}
 
@@ -495,6 +497,34 @@ oam_hook_normal:
 // Main code to draw times during transition screens.
 {savepc}
 	{reorg $3F, $FE0E}
+
+oam_hook_state_table:
+    db $00  // 00 = normal
+    db $00  // 01 = jumping/falling
+    db $00  // 02 = landing and sliding
+    db $00  // 03 = unknown; gets cleared immediately
+    db $00  // 04 = unknown and weird
+    db $00  // 05 = can't move (unknown reason)
+    db $00  // 06 = damage knockback
+    db $00  // 07 = can't move (death), does not reset level or animate
+    db $00  // 08 = teleport (completed level), gives weapon and everything!
+    db $00  // 09 = can't move (boss HP fills in)
+    db $80  // 0A = can't move (used for READY)
+    db $01  // 0B = frozen in place for level end.  when timer (0148) expires, changes to 08.
+    db $00  // 0C = damage and knockback together
+    db $00  // 0D = walk in place (horizontal transition or for cutscene after Cossack 4)
+    db $00  // 0E = can't move (cutscene)
+    db $01  // 0F = teleporter in wily 3
+    db $00  // 10 = instantly moves to a specific horizontal position
+    db $01  // 11 = teleport (balloon/wire), ports to current stage's first midpoint
+    db $00  // 12 = walk in place (after final hit on Wily capsule)
+    db $00  // 13 = teleport (completed wily 4), plays ending, but music stays on
+
+oam_hook_forced_off:
+	// Clear forced timer flag
+	lda.b #0
+	sta.w {sprite_tile_select}
+	jmp oam_hook_normal.normal_mode
 
 oam_hook_forced_on:
 	// Use alternate sprite set
