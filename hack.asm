@@ -153,6 +153,18 @@ incbin "numbersprites.bin", 8 * $10, $10
 {reorg $40, $6400 + (($5F - $40) * $10)}
 incbin "numbersprites.bin", 9 * $10, $10
 
+// More letters for the title screen.
+// The original title screen doesn't have the entire alphabet, but have
+// a bunch of empty tiles.  Fill in the rest of the alphabet and digits.
+// B F I -> AD AE AF
+org $28010 + ($AD * $10)
+incbin "titlefont.bin", 0 * $10, 3 * $10
+// J K L N Q V X Y Z -> B7 B8 B9 BA BB BC BD BE BF
+org $28010 + ($B7 * $10)
+incbin "titlefont.bin", 3 * $10, 9 * $10
+// 2 3 4 5 6 7 8 -> C7 C8 C9 CA CB CC CD
+org $28010 + ($C7 * $10)
+incbin "titlefont.bin", 12 * $10, 7 * $10
 {loadpc}
 
 
