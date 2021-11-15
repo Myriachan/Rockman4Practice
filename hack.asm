@@ -1,6 +1,10 @@
 // The assembler I'm using doesn't know 6502, hehe.
 arch snes.cpu
 
+// These are in tile numbers on the title screen.
+define version_high_tile $C7    // 2
+define version_low_tile $8A     // 0
+
 // Macro to change where we are
 macro reorg bank, address
 	org $10 + (({bank}) * $2000) + (({address}) & $1FFF)
@@ -162,9 +166,9 @@ incbin "titlefont.bin", 0 * $10, 3 * $10
 // J K L N Q V X Y Z -> B7 B8 B9 BA BB BC BD BE BF
 org $28010 + ($B7 * $10)
 incbin "titlefont.bin", 3 * $10, 9 * $10
-// 2 3 4 5 6 7 8 -> C7 C8 C9 CA CB CC CD
+// 2 3 4 5 6 7 8 . -> C7 C8 C9 CA CB CC CD CE
 org $28010 + ($C7 * $10)
-incbin "titlefont.bin", 12 * $10, 7 * $10
+incbin "titlefont.bin", 12 * $10, 8 * $10
 {loadpc}
 
 
@@ -633,16 +637,24 @@ oam_hook_custom_logic:
 
 	// Because we just deleted a giant function, we can use the rest of its space.
 
-	// Hook the code to load the stage select background.
+	// Hook the code to load a background.
 show_screen_hook:
-	// A contains the previous value of $10, which we check to determine whether
-	// the screen being loaded is stage select.
+	// Loading title screen?
+	lda.b $10
+	cmp.b #1
+	bne .not_title
+	lda.b $2A
 	cmp.b #2
-	bne .return
+	beq .yes_inject
+	// Loading stage select?
+.not_title:
+	lda.b $10
+	cmp.b #2
+	bne .not_stage_select
 	lda.b $2A
 	cmp.b #0
-	bne .return
-	beq .yes_stage_select
+	beq .yes_inject
+.not_stage_select:
 		
 .return:
 	// Return to caller.  Reload A, then multiply by 8 for the deleted code.
@@ -652,7 +664,7 @@ show_screen_hook:
 	asl
 	rts
 
-.yes_stage_select:
+.yes_inject:
 	// Force blanking here, and stop NMI from messing with us.
 	jsr {rom_force_blank_on}
 
@@ -665,33 +677,43 @@ show_screen_hook:
 	lda.b {ram_zp_request_A000_bank}
 	pha
 
+	// Select which copy table.
+	lda.b $10
+	cmp.b #$01
+	beq .title
+	ldx.b #.copy_table_stage_select - .copy_table_base
+	// HACK: I know that X is zero here.
+	beq .copy_outer_loop
+	
+.title:
+	ldx.b #.copy_table_title_screen - .copy_table_base
+
 	// Do the VRAM copies.
-	ldx.b #0
 .copy_outer_loop:
-	lda.w .copy_table, x
+	lda.w .copy_table_base, x
 	bmi .copy_done
 	// First byte is bank to read from.  rom_prg_bank_switch saves X.
 	sta.b {ram_zp_request_A000_bank}
 	jsr {rom_prg_bank_switch}
 	// Second byte is length.  $00 means $100.
 	inx
-	lda.w .copy_table, x
+	lda.w .copy_table_base, x
 	inx
 	sta.b $02
 	// Third and fourth bytes are the VRAM address.
 	// Note that 2006 takes the high byte first.
 	lda.w $2002                 // reset address latch
-	lda.w .copy_table + 1, x
+	lda.w .copy_table_base + 1, x
 	sta.w $2006
-	lda.w .copy_table, x
+	lda.w .copy_table_base, x
 	sta.w $2006
 	inx
 	inx
 	// Fifth and sixth bytes are where to read from.
-	lda.w .copy_table, x
+	lda.w .copy_table_base, x
 	inx
 	sta.b $00
-	lda.w .copy_table, x
+	lda.w .copy_table_base, x
 	inx
 	sta.b $01
 	// Copy data to VRAM.
@@ -719,7 +741,9 @@ show_screen_hook:
 	jsr {rom_prg_bank_switch}
 	jmp .return
 
-.copy_table:
+.copy_table_base:
+// Table of VRAM copies to do for the stage select screen.
+.copy_table_stage_select:
 	// Table of ROM addresses to copy to VRAM.
 	// Add "COSSACK & WILY" text to robot master selection screen.
 	db $27, tilemap_cossack_name.end - tilemap_cossack_name
@@ -745,6 +769,50 @@ show_screen_hook:
 	dw $0000 + ($4A * $10), (tiles_drwily_logo & $1FFF) + $A000
 	// End of table.
 	db $FF
+
+// Table of VRAM copies to do for the title screen.
+.copy_table_title_screen:
+	// Table of ROM addresses to copy to VRAM.
+	// "PRACTICE EDITION"
+	db $39, .practice_end - .practice
+	dw $21C8, (.practice & $1FFF) + $A000
+	// "V X.X BY MYRIA"
+	db $39, .version_end - .version
+	dw $220A, (.version & $1FFF) + $A000
+	// "PHARAOH FIRST"
+	db $39, .pharaoh_first_end - .pharaoh_first
+	dw $2266, (.pharaoh_first & $1FFF) + $A000
+	// "BRIGHT FIRST"
+	db $39, .bright_first_end - .bright_first
+	dw $22A6, (.bright_first & $1FFF) + $A000
+	// Fix attributes of "RST" of "PHARAOH FIRST" to be white palette.
+	db $39, .pharaoh_attrib_fix_end - .pharaoh_attrib_fix
+	dw $23E4, .pharaoh_attrib_fix
+	// Fix attributes of "ST" of "BRIGHT FIRST" to be white palette.
+	db $39, .bright_attrib_fix_end - .bright_attrib_fix
+	dw $23EC, .bright_attrib_fix
+	// End of table.
+	db $FF
+.practice:
+	db $89, $9F, $88, $6C, $9E, $AF, $6C, $AC, $00
+	db $AC, $AA, $AF, $9E, $AF, $8A, $BA
+.practice_end:
+.version:
+	db $BC, $00, {version_high_tile}, $CE, {version_low_tile}, $00
+	db $AD, $BE, $00, $8F, $BE, $9F, $AF, $88
+.version_end:
+.pharaoh_first:
+	db $89, $A8, $88, $9F, $88, $8A, $A8, $00, $AE, $AF, $9F, $95, $9E
+.pharaoh_first_end:
+.bright_first:
+	db $AD, $9F, $AF, $AB, $A8, $9E, $00, $AE, $AF, $9F, $95, $9E
+.bright_first_end:
+.pharaoh_attrib_fix:
+	db $A0
+.pharaoh_attrib_fix_end:
+.bright_attrib_fix:
+	db $0A
+.bright_attrib_fix_end:
 
 
 // Clear the timer when teleporting into a level.
