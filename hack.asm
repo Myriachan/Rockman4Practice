@@ -972,6 +972,17 @@ weapon_give_table:
 
 
 {savepc}
+// Fun hack to extend the title screen so that the whole song can be heard.
+	{reorg $39, $8035}
+	// 4B0 frames -> 648 frames.
+	lda.b #($648) & $FF
+	sta.b $10
+	lda.b #($648) >> 8
+	sta.b $11
+{loadpc}
+
+
+{savepc}
 // Handles pause screen choices.
 // Overwrites code for showing Dr. Cossack's castle; useless for us.
 // NOTE: This code executes from the A000 bank instead of 8000.
