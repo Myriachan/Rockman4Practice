@@ -49,22 +49,23 @@ Free space in ROM (larger than 256 bytes):
 0017 = controller 2 held buttons
 0019 = ask NMI to do VRAM write using buffer, normal mode
 001A = ask NMI to do VRAM write using buffer, 32-byte skip mode
+001F = midpoint value
 0022 = current stage
      00 = Bright Man
      01 = Toad Man
      02 = Drill Man
-     03 = Pharaoh Man
+     03 = Pharaoh Man         0=start 1=midway 2=boss
      04 = Ring Man
      05 = Dust Man
      06 = Dive Man
      07 = Skull Man
-     08 = Cossack 1
-     09 = Cossack 2
-     0A = Cossack 3
-     0B = Cossack 4
-     0C = Wily 1
-     0D = Wily 2
-     0E = Wily 3
+     08 = Cossack 1           0=start 1=midway
+     09 = Cossack 2           0=start 1=midway
+     0A = Cossack 3           0=start 1=midway
+     0B = Cossack 4           0=start 1=midway
+     0C = Wily 1              0=start 1=midway
+     0D = Wily 2              0=start 1=midway
+     0E = Wily 3              0=start 1=midway
      0F = Wily 4
      10 = capcom logo, stage select
      11 = title screen, password
@@ -98,6 +99,7 @@ Free space in ROM (larger than 256 bytes):
 00A2 = E-tanks
 00A9 = bitmask of completed stages (low half)
 00AA = bitmask of completed stages (high half)
+00AC = bitmask of completed Wily 3 refights
 00B0 = current health (80-9C)
 00B1 = Rush Coil energy (80-9C)
 00B2 = Rush Jet energy

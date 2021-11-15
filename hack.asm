@@ -4,6 +4,7 @@ arch snes.cpu
 // These are in tile numbers on the title screen.
 define version_high_tile $C7    // 2
 define version_low_tile $8A     // 0
+define is_release 0
 
 // Macro to change where we are
 macro reorg bank, address
@@ -800,11 +801,17 @@ show_screen_hook:
 	// Fix attributes of "ST" of "BRIGHT FIRST" to be white palette.
 	db $39, .bright_attrib_fix_end - .bright_attrib_fix
 	dw $23EC, .bright_attrib_fix
+	// Make "BETA" appear in red if present.
+	db $39, .beta_marker_end - .beta_marker
+	dw $23DE, .beta_marker
 	// End of table.
 	db $FF
 .practice:
 	db $89, $9F, $88, $6C, $9E, $AF, $6C, $AC, $00
 	db $AC, $AA, $AF, $9E, $AF, $8A, $BA
+if {is_release} == 0
+	db $00, $AD, $AC, $9E, $88
+endif
 .practice_end:
 .version:
 	db $BC, $00, {version_high_tile}, $CE, {version_low_tile}, $00
@@ -822,6 +829,9 @@ show_screen_hook:
 .bright_attrib_fix:
 	db $0A
 .bright_attrib_fix_end:
+.beta_marker:
+	db $50, $50
+.beta_marker_end:
 
 
 // Clear the timer when teleporting into a level.
