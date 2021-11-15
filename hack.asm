@@ -23,6 +23,14 @@ macro warnpc n
 	endif
 endmacro
 
+// Warn if the current address is not the specified value.
+macro exactpc n
+	{#}:
+	if {#} != ({n})
+		warning "exactpc assertion failure"
+	endif
+endmacro
+
 
 // Helpful addresses and constants.
 define ram_zp_controller1_new $0014
@@ -51,6 +59,7 @@ define current_time_frames $05D1
 define last_time_seconds $05D2
 define last_time_frames $05D3
 define sprite_tile_select $05D4
+define route_select $05D5
 
 
 // The first thing we do is build the base file.
@@ -847,6 +856,22 @@ teleport_in_hook:
 {loadpc}
 
 
+// Set route_select according to whether the title screen cursor is on
+// Pharaoh First or Bright First.  This also disables the password option,
+// which really doesn't make sense in a practice hack anyway.
+{savepc}
+	{reorg $39, $8081}
+	lda.w $0200
+	// Y coordinate of cursor is $97 for Pharaoh and $A7 for Bright.
+	// Cheeseball optimization here to fit in these 12 bytes.
+	cmp.b #$A7
+	lda.b #0
+	adc.b #0          // ROL would be 1 byte smaller, but we need to waste a byte.
+	sta.w {route_select}
+	{exactpc $808D}
+{loadpc}
+
+
 // Hook teleporting into a level.
 {savepc}
 	{reorg $3C, $875E}
@@ -958,12 +983,23 @@ level_select_choose:
 	// Give the player the weapons that they should have on this stage.
 	lda.w $1234
 	lda.b {ram_zp_current_level}
+	// 8 and higher (castle levels) give everything.
+	cmp.b #8
+	bcc .weapon_not_everything
+	lda.b #8
+.weapon_not_everything:
+	// Each entry is 16 bits.
 	asl
+	// Select between Pharaoh first and Bright first.
+	ldx.w {route_select}
+	// Note that the X offset is 0 for Pharaoh.
+	// (weapon_give_table_pharoah_first == weapon_give_table)
+	beq .route_pharaoh_first
+	// Bright first.
+	clc
+	adc.b #weapon_give_table_bright_first - weapon_give_table
+.route_pharaoh_first:
 	tax
-	cpx.b #weapon_give_table.last - weapon_give_table
-	bcc .weapon_not_cossack
-	ldx.b #weapon_give_table.last - weapon_give_table
-.weapon_not_cossack:
 	lda.w weapon_give_table, x
 	sta.b $00
 	lda.w weapon_give_table + 1, x
@@ -1008,11 +1044,9 @@ level_select_sprite_y_table:
 	incbin "sprite-y-positions.bin"
 .end:
 
-// Table of what weapons to give you on each stage.
-// Some players route Bright Man before Pharaoh Man.  To support practicing
-// this route, selecting Pharaoh Man gives Flash Stopper.  This will simply
-// be ignored by Pharaoh-first runners.
+// Table of what weapons to give you on each stage: Pharaoh first.
 weapon_give_table:
+weapon_give_table_pharoah_first:
 	//  DCBA9876543210
 	// 2. Bright Man            (player gets Balloon during Pharaoh)
 	dw %00100001000011
@@ -1020,8 +1054,8 @@ weapon_give_table:
 	dw %11111111000111
 	// 7. Drill Man
 	dw %11110111000011
-	// 1. Pharaoh Man           (Flash Stopper given by this option; see above note)
-	dw %01000000000011
+	// 1. Pharaoh Man
+	dw %00000000000011
 	// 3. Ring Man
 	dw %01100001000011
 	// 4. Dust Man
@@ -1030,7 +1064,28 @@ weapon_give_table:
 	dw %11110101000011
 	// 5. Skull Man
 	dw %01110101000011
-.last:
+	// 9-16. Cossack 1~Wily 4   (player gets Rush Marine for beating Toad Man)
+	dw %11111111011111
+
+// Table of what weapons to give you on each stage: Bright first.
+weapon_give_table_bright_first:
+	//  DCBA9876543210
+	// 1. Bright Man
+	dw %00000000000011
+	// 8. Toad Man              (player gets Rush Jet for beating Drill Man)
+	dw %11111111000111
+	// 7. Drill Man
+	dw %11110111000011
+	// 2. Pharaoh Man
+	dw %01000000000011
+	// 3. Ring Man              (player gets Balloon during Pharaoh)
+	dw %01100001000011
+	// 4. Dust Man
+	dw %01100101000011
+	// 6. Dive Man
+	dw %11110101000011
+	// 5. Skull Man
+	dw %01110101000011
 	// 9-16. Cossack 1~Wily 4   (player gets Rush Marine for beating Toad Man)
 	dw %11111111011111
 
