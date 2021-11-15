@@ -318,14 +318,89 @@ end_level_hook:
 
 
 // We jump here when oam_hook_* decides that we should draw the timer.
-draw_timer:
+timer_display_check:
+	// Are we displaying the timer this frame because we're in a screen transition?
+	lda.w {sprite_tile_select}
+	// Check for lockout: timer disabled until level end.
+	cmp.b #$FF
+	beq .nope
+	and.b #$FF
+	bmi .forced_on
+	and.b #$40
+	bne .transition
+	
+	// We're in an interesting state (see oam_hook_state_table), but timer
+	// display is currently disabled.  Decide whether we should force-enable.
+	lda.b {ram_zp_rockman_state}
+	// Teleporting out?
+	cmp.b #$08
+	beq .force_on_boss_set
+	// Walk for a cutscene?
+	cmp.b #$0D
+	beq .check_state_0D
+	// Teleporter in Wily 3
+	cmp.b #$0F
+	beq .force_on_boss_set
+	// Got balloon/wire?
+	cmp.b #$11
+	beq .force_on_boss_set
+	// Got final hit on Wily capsule?
+	cmp.b #$12
+	beq .force_on_boss_set
+	// No reason to turn on the timer.
+.nope:
+	rts
+
+// Screen transition.
+.transition:
+	// Keep clearing the flag and having the transition set it again.
+	// This allows automatically clearing it when transition finishes.
+	lda.w {sprite_tile_select}
+	and.b #$3F
+	sta.w {sprite_tile_select}
+	bpl .draw_timer
+	// always branches because we cleared high bit
+
+// Force-on is enabled.  Check whether to disable.
+.forced_on:
+	// Clear force flag if we're in the "teleport in" state.
+	// This hides the timer after using a teleporter in Wily 3.
+	lda.b {ram_zp_rockman_state}
+	cmp.b #$0A
+	bne .draw_timer
+	lda.b #0
+	sta.w {sprite_tile_select}
+	beq .nope
+	// always branches
+
+// Rockman is in state 0D; check whether to enable timer.
+.check_state_0D:
+	// Check for final hit on Cossack 4 boss.
+	// If this isn't Cossack 4, ignore.
+	lda.b {ram_zp_current_level}
+	cmp.b #$0B
+	bne .nope
+	// Wait for the Blues teleport countdown to begin.
+	// This way, we include the time until Rockman and Cossack get
+	// in position--speedrunners need to optimize this.
+	lda.w $04F8
+	cmp.b #59           // one less than initial value of 60
+	bne .nope
+	beq .force_on_boss_set
+
+// We've decided to force it on, using the "boss" set of graphics.
+.force_on_boss_set:
+	lda.b #$8A
+	sta.w {sprite_tile_select}
+
+.draw_timer:
 	// Switch to the selected CHR-ROM bank.
 	// Zero low part = screen transition version
 	// Nonzero low part = boss kill version
 	ldy.b #3
 	ldx.b #$00
 	lda.w {sprite_tile_select}
-	and.b #$7F
+	and.b #$3F
 	beq .screen_transition_version
 	inx
 .screen_transition_version:
@@ -441,13 +516,13 @@ nmi_hook:
 	// Called during normal gameplay.
 oam_hook_normal:
 	// Based on current Rockman state, decide what to do.
+	// Negative = need to execute custom routine to decide.
+	// Non-negative = normal mode: timer keeps running.
 	ldx.b {ram_zp_rockman_state}
 	lda.w oam_hook_state_table, x
-	bmi .forced_off
-	bne .forced_on
-	// Check for timer being forced on until level exit.
-	lda.w {sprite_tile_select}
-	bmi .forced_on
+	// If timer display is forced on, also do custom logic.
+	ora.w {sprite_tile_select}
+	bmi .custom_logic
 
 .normal_mode:
 	// Set normal CHR-RAM mode.
@@ -467,10 +542,8 @@ oam_hook_normal:
 	//bne .latch_loop
 	jmp $C421
 
-.forced_on:
-	jmp oam_hook_forced_on
-.forced_off:
-	jmp oam_hook_forced_off
+.custom_logic:
+	jmp oam_hook_custom_logic
 
 	{warnpc $C421}
 
@@ -507,37 +580,25 @@ oam_hook_state_table:
     db $00  // 05 = can't move (unknown reason)
     db $00  // 06 = damage knockback
     db $00  // 07 = can't move (death), does not reset level or animate
-    db $00  // 08 = teleport (completed level), gives weapon and everything!
+    db $80  // 08 = teleport (completed level), gives weapon and everything!
     db $00  // 09 = can't move (boss HP fills in)
     db $80  // 0A = can't move (used for READY)
-    db $01  // 0B = frozen in place for level end.  when timer (0148) expires, changes to 08.
+    db $80  // 0B = frozen in place for level end.  when timer (0148) expires, changes to 08.
     db $00  // 0C = damage and knockback together
-    db $00  // 0D = walk in place (horizontal transition or for cutscene after Cossack 4)
+    db $80  // 0D = walk in place (horizontal transition or for cutscene after Cossack 4)
     db $00  // 0E = can't move (cutscene)
-    db $01  // 0F = teleporter in wily 3
+    db $80  // 0F = teleporter in wily 3
     db $00  // 10 = instantly moves to a specific horizontal position
-    db $01  // 11 = teleport (balloon/wire), ports to current stage's first midpoint
-    db $00  // 12 = walk in place (after final hit on Wily capsule)
+    db $80  // 11 = teleport (balloon/wire), ports to current stage's first midpoint
+    db $80  // 12 = walk in place (after final hit on Wily capsule)
     db $00  // 13 = teleport (completed wily 4), plays ending, but music stays on
 
-oam_hook_forced_off:
-	// Clear forced timer flag
-	lda.b #0
-	sta.w {sprite_tile_select}
-	jmp oam_hook_normal.normal_mode
-
-oam_hook_forced_on:
-	// Use alternate sprite set
-	lda.b #$80 + 10
-	sta.w {sprite_tile_select}
-	bmi oam_hook_transition.external   // branch always
-
 oam_hook_transition:
-	// Normal mode - use original sprite table.
-	lda.b #$00
+	// Set transition display flag - use original sprite table.
+	lda.b #$40
 	sta.w {sprite_tile_select}
 
-.external:
+oam_hook_custom_logic:
 	// Call original function.
 	jsr $C421
 
@@ -546,7 +607,7 @@ oam_hook_transition:
 	sta.b {ram_zp_request_8000_bank}
 	jsr {rom_prg_bank_switch}
 	
-	jmp draw_timer
+	jmp timer_display_check
 
 	{warnpc $FEA5}
 {loadpc}
@@ -913,6 +974,8 @@ pause_screen_hook:
 	and.b #$20
 	beq .not_select
 	// Trigger a stage exit.
+	lda.b #$FF
+	sta.w {sprite_tile_select}
 	lda.b #$08
 	bne .yes_select
 .not_select:

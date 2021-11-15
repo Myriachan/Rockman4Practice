@@ -112,4 +112,7 @@ Free space in ROM (larger than 256 bytes):
 00BD = (Skull) Skull Barrier energy
 00FA = Y scroll coordinate written during NMI
 00FC = X scroll coordinate written during NMI
+0132 = boss health?
 0148 = countdown timer before stage exit after defeating boss
+0330 = Rockman's X coordinate (or a copy)
+04F8 = countdown timer after beating Cossack 4 machine until Blues teleports in with Kalinka
