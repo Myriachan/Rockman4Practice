@@ -66,7 +66,7 @@ Free space in ROM (larger than 256 bytes):
      0C = Wily 1              0=start 1=midway
      0D = Wily 2              0=start 1=midway
      0E = Wily 3              0=start 1=midway
-     0F = Wily 4
+     0F = Wily 4              0=start
      10 = capcom logo, stage select
      11 = title screen, password
      13 = intro story
