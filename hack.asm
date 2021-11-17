@@ -375,7 +375,7 @@ timer_display_check:
 	beq .force_on_boss_set
 	// No reason to turn on the timer.
 .nope:
-	rts
+	jmp oam_hook_normal.normal_mode
 
 // Screen transition.
 .transition:
