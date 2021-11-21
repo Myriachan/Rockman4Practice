@@ -35,11 +35,13 @@ endmacro
 
 // Helpful addresses and constants.
 define ram_zp_controller1_new $0014
+define ram_zp_midpoint $001F
 define ram_zp_current_level $0022
 define ram_zp_rockman_state $0030
 define ram_zp_lives $00A1
 define ram_zp_etanks $00A2
 define ram_zp_completed_stages $00A9
+define ram_zp_wily3_bosses_killed $00AC
 define ram_zp_energy $00B0
 define ram_zp_request_8000_bank $00F5
 define ram_zp_request_A000_bank $00F6
@@ -910,6 +912,10 @@ teleport_in_hook:
 	{reorg $39, {rom_bank39_level_id_map} + 4}
 	db $FF
 
+	// Patch the mask of button presses that select a stage.
+	{reorg $39, $80A9}
+	and.b #($10 | $40 | $80)
+
 	// Where the code handling level choices goes.
 	{reorg $39, $80C2}
 level_select_choose:
@@ -1038,6 +1044,60 @@ level_select_choose:
 	dey
 	bne .weapon_second_loop
 
+	// Decide which midpoint to start at.
+	lda.b {ram_zp_controller1_new}
+	bmi .button_a
+	asl
+	bmi .button_b
+	and.b #($10 << 1)
+	bne .button_start
+	// ???  Should not happen.  Act like button A.
+	beq .button_a
+
+.button_b:
+	lda.b #1
+	sta.b {ram_zp_midpoint}
+	bne .button_done    // always branches
+
+.button_start:
+	lda.b #2
+	sta.b {ram_zp_midpoint}
+	// If selected level == Wily 3, also flag all bosses defeated.
+	lda.b {ram_zp_current_level}
+	cmp.b #$0E
+	bne .button_done
+	lda.b #$FF
+	sta.b {ram_zp_wily3_bosses_killed}
+	bne .button_done    // always branches
+
+.button_a:
+.button_done:
+	// If stage is Pharaoh and midpoint chosen != 0, add Balloon to
+	// player's inventory.
+	lda.b {ram_zp_current_level}
+	cmp.b #$03
+	bne .no_add_balloon
+	lda.b {ram_zp_midpoint}
+	beq .no_add_balloon
+	// Add balloon energy.
+	lda.b #$9C
+	sta.b {ram_zp_energy} + 6
+.no_add_balloon:
+
+	// If stage is Dust and midpoint != 0, hide Eddie, because it looks
+	// broken to show him during READY.  (However, you can do this in
+	// the original game if you get past Eddie's item and die on the
+	// next screen.)
+	lda.b {ram_zp_current_level}
+	cmp.b #$05
+	bne .no_suppress_eddie
+	lda.b {ram_zp_midpoint}
+	beq .no_suppress_eddie
+	lda.b #$08
+	ora.w $0103
+	sta.w $0103
+.no_suppress_eddie:
+
 	// I don't know what these do, but the original code does it here.
 	lda.b #0
 	sta.b $2A
@@ -1102,6 +1162,69 @@ weapon_give_table_bright_first:
 	// We can overwrite all the way through the Cossack castle intro code.
 	{warnpc $820A}
 {loadpc}
+
+{savepc}
+	// Midpoint data edits.
+	// Order: Screen, Scroll Map Data, Initial CHR Load ID, Palette Set
+	// 
+	{reorg $3E, $C8AB + ($08 * 8)}
+	// Cossack 1
+	db $07, $02, $4E, $00       // midpoint (original)
+	db $11, $06, $4E, $00       // boss
+	// Cossack 2
+	db $09, $03, $4F, $00       // midpoint (original)
+	db $0F, $07, $4F, $00       // boss
+	// Cossack 3
+	db $08, $02, $50, $00       // midpoint (original)
+	db $0F, $03, $50, $00       // boss
+	// Cossack 4
+	db $10, $08, $51, $00       // midpoint (original)
+	db $12, $09, $51, $00       // boss
+	// Wily 1
+	db $08, $02, $52, $00       // midpoint (original)
+	db $13, $06, $52, $00       // boss
+	// Wily 2
+	db $0A, $05, $53, $00       // midpoint (original)
+	db $14, $0A, $53, $01       // boss
+	// Wily 3
+	db $09, $09, $00, $06       // midpoint (original)
+	db $09, $09, $00, $06       // boss - the distinction is done in code above
+	// Wily 4
+	db $02, $01, $00, $00       // midpoint (custom, not in original)
+	//db $05, $04, $00, $00       // boss
+	//db $08, $05, $00, $00       // boss
+
+	// Set screen $15 of Wily 2 to "scroll GFX load" group $40 when
+	// scrolling into it.  This is needed for the "boss" midpoint hack.
+	// Normally, screen $14 (boss corridor) has this load, but when
+	// doing the midpoint hack, that doesn't happen.
+	{reorg $2D, $156B}
+	db $40
+	
+//	// Hackery for 
+//	{reorg $2F, $0B00}
+//	incbin "Rockman 4 - Aratanaru Yabou!! (Japan).nes", $10 + ($2F * $2000) + $0A40, $40
+//	// Screen preset #8 change 0 to 8
+//	{reorg $2F, $1508}
+//	db $08, $06
+//	// Scroll map 5: change to scroll type 6, length 1
+//	{reorg $2F, $1535}
+//	db $60
+//	// Change BG palette for scroll map 5 to 0.  (normally has dummy value)
+//	{reorg $2F, $1555}
+//	db $00
+//	// Scroll GFX load for scroll map 5 to 0.  (normally has dummy value)
+//	{reorg $2F, $1565}
+//	db $00
+//	
+//	{reorg $2F, $1540}
+//	db $08, $20, $02, $06
+//	{reorg $2F, $1534}
+////	db $30
+//	{reorg $2F, $1564}
+////	db $03
+{loadpc}
+
 
 
 {savepc}
