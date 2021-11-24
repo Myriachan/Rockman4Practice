@@ -35,6 +35,8 @@ endmacro
 
 // Helpful addresses and constants.
 define ram_zp_controller1_new $0014
+define ram_zp_vram_write_noskip $0019
+define ram_zp_vram_write_32skip $001A
 define ram_zp_midpoint $001F
 define ram_zp_current_level $0022
 define ram_zp_rockman_state $0030
@@ -47,6 +49,7 @@ define ram_zp_request_8000_bank $00F5
 define ram_zp_request_A000_bank $00F6
 define ram_zp_2000_shadow_1 $00FD
 define ram_zp_2000_shadow_2 $00FF
+define ram_vram_command $0780
 define rom_bank39_level_id_map $8860
 define rom_force_blank_on $C369
 define rom_force_blank_off $C373
@@ -757,14 +760,19 @@ show_screen_hook:
 // Table of VRAM copies to do for the stage select screen.
 .copy_table_stage_select:
 	// Table of ROM addresses to copy to VRAM.
+	// Replace the "PUSH START" with labels for settings.
+	// The alternate stage select screen, stageselect-nametable, has
+	// this string hardwired.
+	db $27, tilemap_options.end - tilemap_options
+	dw $2040, (tilemap_options & $1FFF) + $A000
 	// Add "COSSACK & WILY" text to robot master selection screen.
 	db $27, tilemap_cossack_name.end - tilemap_cossack_name
 	dw $222C, (tilemap_cossack_name & $1FFF) + $A000
 	db $27, tilemap_andwily_name.end - tilemap_andwily_name
 	dw $224C, (tilemap_andwily_name & $1FFF) + $A000
-	// Ampersand for "COSSACK & WILY".
-	db $27, tiles_ampersand.end - tiles_ampersand
-	dw $0000 + ($FA * $10), (tiles_ampersand & $1FFF) + $A000
+	// Ampersand and colon graphics.
+	db $27, tiles_extra.end - tiles_extra
+	dw $0000 + ($FA * $10), (tiles_extra & $1FFF) + $A000
 	// Copy tilemap_second_level_select to VRAM 2800.
 	// This has the Cossack and Wily stage select.
 	db $27, $100 & $FF
@@ -913,12 +921,23 @@ teleport_in_hook:
 	db $FF
 
 	// Patch the mask of button presses that select a stage.
+	// This causes our code to execute for A, B, select and start.
 	{reorg $39, $80A9}
-	and.b #($10 | $40 | $80)
+	and.b #($10 | $20 | $40 | $80)
 
 	// Where the code handling level choices goes.
 	{reorg $39, $80C2}
 level_select_choose:
+	// If not A or Start, we're changing an option.
+	and.b #($10 | $80)
+	bne .level_chosen
+	// Change options; this code is in another bank.
+	lda.b #$27
+	sta.b {ram_zp_request_A000_bank}
+	jsr {rom_prg_bank_switch}
+	jmp do_options_update
+	
+.level_chosen:
 	// Look up the level in the table based on where the cursor is.
 	lda.b $10
 	clc
@@ -1044,34 +1063,17 @@ level_select_choose:
 	dey
 	bne .weapon_second_loop
 
-	// Decide which midpoint to start at.
-	lda.b {ram_zp_controller1_new}
-	bmi .button_a
-	asl
-	bmi .button_b
-	and.b #($10 << 1)
-	bne .button_start
-	// ???  Should not happen.  Act like button A.
-	beq .button_a
-
-.button_b:
-	lda.b #1
-	sta.b {ram_zp_midpoint}
-	bne .button_done    // always branches
-
-.button_start:
-	lda.b #2
-	sta.b {ram_zp_midpoint}
-	// If selected level == Wily 3, also flag all bosses defeated.
+	// If selected level == Wily 3 and start == boss, also flag all bosses defeated.
 	lda.b {ram_zp_current_level}
 	cmp.b #$0E
-	bne .button_done
+	bne .not_wily3_boss
+	lda.b {ram_zp_midpoint}
+	cmp.b #2
+	bcc .not_wily3_boss
 	lda.b #$FF
 	sta.b {ram_zp_wily3_bosses_killed}
-	bne .button_done    // always branches
+.not_wily3_boss:
 
-.button_a:
-.button_done:
 	// If stage is Pharaoh and midpoint chosen != 0, add Balloon to
 	// player's inventory.
 	lda.b {ram_zp_current_level}
@@ -1327,8 +1329,8 @@ tiles_drwily_logo:
 	incbin "drwily-logo.bin"
 .end:
 
-// Bitmap data for an ampersand.
-tiles_ampersand:
+tiles_extra:
+	// Bitmap data for an ampersand.
 	db %11110111
 	db %10001011
 	db %01010111
@@ -1346,6 +1348,34 @@ tiles_ampersand:
 	db %01110111 & %10101011
 	db %10001001 & %01110110
 	db %11111111 & %10001001
+	
+	// Bitmap data for a colon.
+	db %11111111
+	db %11101111
+	db %11101111
+	db %10011111
+	db %11111111
+	db %11101111
+	db %11101111
+	db %10011111
+
+	db %11111111 & %11111111
+	db %10011111 & %11101111
+	db %10011111 & %11101111
+	db %11111111 & %10011111
+	db %11111111 & %11111111
+	db %10011111 & %11101111
+	db %10011111 & %11101111
+	db %11111111 & %10011111
+.end:
+
+// Tilemap for "PUSH START" row replacement.
+// "   START AT:START   DROPS:ON    "
+tilemap_options:
+	db $10, $10, $10, $92, $93, $80, $91, $93
+	db $10, $80, $93, $FB, $92, $93, $80, $91
+	db $93, $10, $10, $10, $83, $91, $8E, $8F
+	db $92, $FB, $8E, $8D, $10, $10, $10, $10
 .end:
 
 // Tilemap for "COSSACK".
@@ -1357,6 +1387,101 @@ tilemap_cossack_name:
 tilemap_andwily_name:
 	db $10, $FA, $10, $96, $88, $8B, $98
 .end:
+
+
+// Code to update options on the title screen.
+do_options_update:
+	// Select pressed?
+	lda.b {ram_zp_controller1_new}
+	and.b #$20
+	bne .select_pressed
+	lda.b {ram_zp_controller1_new}
+	and.b #$40
+	bne .b_pressed
+	beq .return
+
+.select_pressed:
+	// Cycle among START/MID/BOSS.
+	ldx.b {ram_zp_midpoint}
+	inx
+	cpx.b #3
+	bne .not_3
+	ldx.b #0
+.not_3:
+	stx.b {ram_zp_midpoint}
+	// Select which string to write.
+	lda.w update_startat_offsets, x
+	tax
+	// Play move-cursor sound.
+	lda.b #$2E
+	jsr {rom_play_sound}
+	jmp .trigger_vram_write
+
+// Ask NMI handler to write the given data to VRAM.
+.trigger_vram_write:
+	ldy.b #0
+.trigger_vram_write_loop:
+	lda.w update_stage_select_table, x
+	sta {ram_vram_command}, y
+	cmp.b #$FF
+	beq .trigger_vram_write_done
+	inx
+	iny
+	bne .trigger_vram_write_loop  // effectively a branch-always
+.trigger_vram_write_done:
+	sta.b {ram_zp_vram_write_noskip}
+	jmp .return
+
+.b_pressed:
+.return:
+	// Subtract 1 because of what RTS does.
+	lda.b #($80AD - 1) >> 8
+	pha
+	lda.b #($80AD - 1) & $FF
+	pha
+	lda.b #$30
+	sta.b {ram_zp_request_A000_bank}
+	jmp {rom_prg_bank_switch}
+
+// Tilemap update data to show the different options on screen.
+// We need to do two writes, to the two nametables.
+update_stage_select_table:
+
+// START / MID / BOSS
+update_startat_start:
+	db $20, $4C, $04, $92, $93, $80, $91, $93
+	db $28, $4C, $04, $92, $93, $80, $91, $93
+	db $FF
+update_startat_mid:
+	db $20, $4C, $04, $8C, $88, $83, $10, $10
+	db $28, $4C, $04, $8C, $88, $83, $10, $10
+	db $FF
+update_startat_boss:
+	db $20, $4C, $04, $81, $8E, $92, $92, $10
+	db $28, $4C, $04, $81, $8E, $92, $92, $10
+	db $FF
+
+// ON / OFF.  Doesn't draw the O because doesn't matter.
+update_drops_on:
+	db $20, $5B, $01, $8D, $10
+	db $28, $5B, $01, $8D, $10
+	db $FF
+update_drops_off:
+	db $20, $5B, $01, $85, $85
+	db $28, $5B, $01, $85, $85
+	db $FF
+
+// Ensure that these tables fits in 256 bytes.
+update_stage_select_table_end:
+	if update_stage_select_table_end - update_stage_select_table > 256
+		warning "update_stage_select_table too large"
+	endif
+
+// Offsets of the update data.
+update_startat_offsets:
+	db update_startat_start - update_stage_select_table
+	db update_startat_mid - update_stage_select_table
+	db update_startat_boss - update_stage_select_table
 
 	{warnpc $C000}
 {savepc}
