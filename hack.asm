@@ -35,6 +35,7 @@ endmacro
 
 // Helpful addresses and constants.
 define ram_zp_controller1_new $0014
+define ram_zp_palette_flag $0018
 define ram_zp_vram_write_noskip $0019
 define ram_zp_vram_write_32skip $001A
 define ram_zp_midpoint $001F
@@ -49,6 +50,8 @@ define ram_zp_request_8000_bank $00F5
 define ram_zp_request_A000_bank $00F6
 define ram_zp_2000_shadow_1 $00FD
 define ram_zp_2000_shadow_2 $00FF
+define ram_palette_shadow1 $0600
+define ram_palette_shadow2 $0620
 define ram_vram_command $0780
 define rom_bank39_level_id_map $8860
 define rom_force_blank_on $C369
@@ -646,6 +649,7 @@ oam_hook_custom_logic:
 drop_item_hook:
 	lda.w {drop_disable}
 	bne .no_drop
+	// Copied original code.
 	lda.b $03
 .loop:
 	cmp $BC97, y
@@ -811,6 +815,9 @@ show_screen_hook:
 	// since we don't need that bitmap anymore for stage select.
 	db $27, tiles_drwily_logo.end - tiles_drwily_logo
 	dw $0000 + ($4A * $10), (tiles_drwily_logo & $1FFF) + $A000
+	// Overwrite Dr. Cossack's face with Doc Robot since we're not using him.
+	db $27, tiles_docrobot.end - tiles_docrobot
+	dw $0000 + ($C2 * $10), (tiles_docrobot & $1FFF) + $A000
 	// End of table.
 	db $FF
 
@@ -1002,7 +1009,8 @@ level_select_choose:
 	iny
 	cpx.b #level_select_sprite_y_table.end - level_select_sprite_y_table
 	bne .show_sprites_loop
-	beq .sprites_done
+	ldx.b #(level_select_palette2.original - level_select_palette2)
+	bpl .sprites_done    // always branches
 
 .hide_sprites:
 	// Hide the sprites.
@@ -1018,8 +1026,23 @@ level_select_choose:
 	iny
 	cpx.b #level_select_sprite_y_table.end - level_select_sprite_y_table
 	bne .hide_sprites_loop
+	ldx.b #(level_select_palette2.docrobot - level_select_palette2)
 
 .sprites_done:
+	// Adjust the palette 
+	ldy.b #0
+.palette_loop:
+	lda.w level_select_palette2, x
+	sta {ram_palette_shadow1} + (2 * 4) + 1, y
+	sta {ram_palette_shadow2} + (2 * 4) + 1, y
+	inx
+	iny
+	cpy.b #3
+	bne .palette_loop
+	// Ask NMI to write the palette to the PPU.
+	lda.b #1
+	sta.b {ram_zp_palette_flag}
+
 	// Play the in-game menu/pause sound effect.
 	lda.b #{sound_pause}
 	jsr {rom_play_sound}
@@ -1140,6 +1163,25 @@ level_select_sprite_y_table:
 	incbin "sprite-y-positions.bin"
 .end:
 
+// Palette values for background palette 2.
+level_select_palette2:
+.original:
+	db $29, $30, $19
+.docrobot:
+	db $37, $17, $15
+
+	// We can overwrite all the way through the Cossack castle intro code.
+	{warnpc $820A}
+	
+	
+	// Another overwritable block here.  This code checks whether to show
+	// Dr. Cossack's face on stage select, which we don't need.
+	{reorg $39, $82EF}
+	// We do have to write an "RTS" here though so this code does nothing.
+	rts
+
+	// Now we can do whatever.
+
 // Table of what weapons to give you on each stage: Pharaoh first.
 weapon_give_table:
 weapon_give_table_pharoah_first:
@@ -1185,9 +1227,9 @@ weapon_give_table_bright_first:
 	// 9-16. Cossack 1~Wily 4   (player gets Rush Marine for beating Toad Man)
 	dw %11111111011111
 
-	// We can overwrite all the way through the Cossack castle intro code.
-	{warnpc $820A}
+	{warnpc $832C}  // probably can be extended to $8484
 {loadpc}
+
 
 {savepc}
 	// Midpoint data edits.  The castle levels don't have boss midpoints,
@@ -1351,6 +1393,11 @@ tilemap_second_level_select:
 // Bitmap data for the Dr. Wily logo.
 tiles_drwily_logo:
 	incbin "drwily-logo.bin"
+.end:
+
+// Bitmap data for Doc Robot.
+tiles_docrobot:
+	incbin "docrobot-chr.bin"
 .end:
 
 tiles_extra:
