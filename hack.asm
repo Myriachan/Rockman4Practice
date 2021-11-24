@@ -1164,7 +1164,8 @@ weapon_give_table_bright_first:
 {loadpc}
 
 {savepc}
-	// Midpoint data edits.
+	// Midpoint data edits.  The castle levels don't have boss midpoints,
+	// and Wily 4 has no midpoints at all originally.
 	// Order: Screen, Scroll Map Data, Initial CHR Load ID, Palette Set
 	// 
 	{reorg $3E, $C8AB + ($08 * 8)}
@@ -1191,8 +1192,7 @@ weapon_give_table_bright_first:
 	db $09, $09, $00, $06       // boss - the distinction is done in code above
 	// Wily 4
 	db $02, $01, $00, $00       // midpoint (custom, not in original)
-	//db $05, $04, $00, $00       // boss
-	//db $08, $05, $00, $00       // boss
+	db $08, $05, $00, $00       // boss
 
 	// Set screen $15 of Wily 2 to "scroll GFX load" group $40 when
 	// scrolling into it.  This is needed for the "boss" midpoint hack.
@@ -1201,28 +1201,29 @@ weapon_give_table_bright_first:
 	{reorg $2D, $156B}
 	db $40
 	
-//	// Hackery for 
-//	{reorg $2F, $0B00}
-//	incbin "Rockman 4 - Aratanaru Yabou!! (Japan).nes", $10 + ($2F * $2000) + $0A40, $40
-//	// Screen preset #8 change 0 to 8
-//	{reorg $2F, $1508}
-//	db $08, $06
-//	// Scroll map 5: change to scroll type 6, length 1
-//	{reorg $2F, $1535}
-//	db $60
-//	// Change BG palette for scroll map 5 to 0.  (normally has dummy value)
-//	{reorg $2F, $1555}
-//	db $00
-//	// Scroll GFX load for scroll map 5 to 0.  (normally has dummy value)
-//	{reorg $2F, $1565}
-//	db $00
-//	
-//	{reorg $2F, $1540}
-//	db $08, $20, $02, $06
-//	{reorg $2F, $1534}
-////	db $30
-//	{reorg $2F, $1564}
-////	db $03
+	// Hackery for getting Wily 4's "boss" option to work.
+	// Make a copy of the final screen of the hallway as screen #8.
+	{reorg $2F, $0B00}
+	incbin "Rockman 4 - Aratanaru Yabou!! (Japan).nes", $10 + ($2F * $2000) + $0A40, $40
+	// Screen preset #8 change 0 to 8.  This is overwriting data past the end,
+	// but there doesn't seem to be any bad effects of this... (famous last words)
+	{reorg $2F, $1508}
+	db $08, $06
+	// Scroll map 5: change to scroll type 6, length 1
+	{reorg $2F, $1535}
+	db $60
+	// Set up multi-path so that screen 8 scrolls right to screen 6 (black room).
+	// This is needed because we have two different ways into screen 6.
+	{reorg $2F, $1540}
+	db $08, $20, $02, $06
+	// Change BG palette for scroll map 5 to 0.  (normally has dummy value)
+	// Needed for correct Wily capsule coloring.
+	{reorg $2F, $1555}
+	db $00
+	// Scroll GFX load for scroll map 5 to 0.  (normally has dummy value)
+	// Needed to load Wily capsule graphics into CHR-RAM.
+	{reorg $2F, $1565}
+	db $00
 {loadpc}
 
 
