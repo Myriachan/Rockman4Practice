@@ -66,6 +66,7 @@ define last_time_seconds $05D2
 define last_time_frames $05D3
 define sprite_tile_select $05D4
 define route_select $05D5
+define drop_disable $05D6
 
 
 // The first thing we do is build the base file.
@@ -640,7 +641,30 @@ oam_hook_custom_logic:
 	
 	jmp timer_display_check
 
+
+// This needs to be callable from low banks, so in the fixed bank should be OK.
+drop_item_hook:
+	lda.w {drop_disable}
+	bne .no_drop
+	lda.b $03
+.loop:
+	cmp $BC97, y
+	bcc .drop_item
+	dey
+	bpl .loop
+.no_drop:
+	jmp $DC00
+.drop_item:
+	jmp $BBA8
+
 	{warnpc $FEA5}
+{loadpc}
+
+
+// drop_item_hook
+{savepc}
+	{reorg $3B, $BB9B}
+	jmp drop_item_hook
 {loadpc}
 
 
@@ -1411,11 +1435,21 @@ do_options_update:
 	stx.b {ram_zp_midpoint}
 	// Select which string to write.
 	lda.w update_startat_offsets, x
+.option_changed:
 	tax
 	// Play move-cursor sound.
 	lda.b #$2E
 	jsr {rom_play_sound}
 	jmp .trigger_vram_write
+
+.b_pressed:
+	// Toggle drop disabling on/off.
+	lda.w {drop_disable}
+	eor.b #1
+	sta.w {drop_disable}
+	tax
+	lda.w update_drop_offsets, x
+	jmp .option_changed
 
 // Ask NMI handler to write the given data to VRAM.
 .trigger_vram_write:
@@ -1430,9 +1464,8 @@ do_options_update:
 	bne .trigger_vram_write_loop  // effectively a branch-always
 .trigger_vram_write_done:
 	sta.b {ram_zp_vram_write_noskip}
-	jmp .return
+	// fall through
 
-.b_pressed:
 .return:
 	// Subtract 1 because of what RTS does.
 	lda.b #($80AD - 1) >> 8
@@ -1482,6 +1515,9 @@ update_startat_offsets:
 	db update_startat_start - update_stage_select_table
 	db update_startat_mid - update_stage_select_table
 	db update_startat_boss - update_stage_select_table
+update_drop_offsets:
+	db update_drops_on - update_stage_select_table
+	db update_drops_off - update_stage_select_table
 
 	{warnpc $C000}
 {savepc}
