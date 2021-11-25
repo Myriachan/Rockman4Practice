@@ -4,6 +4,7 @@ It allows selecting any stage, and gives you the items for the stage according t
 It also times each section of the game so that you can see how you're doing.
 
 ![Title Screen](images/title.png) ![Stage Select](images/select_main.png) ![Castle Stage Select](images/select_castle.png)
+
 ![Timer Example](images/title_example.png) ![Timer Example 2](images/title_cossack4.png)
 
 ## How to Install
