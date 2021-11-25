@@ -47,8 +47,9 @@ Free space in ROM (larger than 256 bytes):
 0015 = controller 2 new pushes
 0016 = controller 1 held buttons
 0017 = controller 2 held buttons
-0019 = ask NMI to do VRAM write using buffer, normal mode
-001A = ask NMI to do VRAM write using buffer, 32-byte skip mode
+0018 = ask NMI to do palette write from buffer at 0600
+0019 = ask NMI to do VRAM write using buffer at 0780, normal mode
+001A = ask NMI to do VRAM write using buffer at 0780, 32-byte skip mode
 001F = midpoint value
 0022 = current stage
      00 = Bright Man
@@ -120,4 +121,6 @@ Free space in ROM (larger than 256 bytes):
 0148 = countdown timer before stage exit after defeating boss
 0330 = Rockman's X coordinate (or a copy)
 04F8 = countdown timer after beating Cossack 4 machine until Blues teleports in with Kalinka
+0600 = palette shadow
+0620 = palette shadow 2???
 0780 = VRAM write request buffer

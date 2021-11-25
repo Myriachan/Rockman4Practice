@@ -41,6 +41,7 @@ define ram_zp_vram_write_32skip $001A
 define ram_zp_midpoint $001F
 define ram_zp_current_level $0022
 define ram_zp_rockman_state $0030
+define ram_zp_oam_next $0097
 define ram_zp_lives $00A1
 define ram_zp_etanks $00A2
 define ram_zp_completed_stages $00A9
@@ -473,7 +474,7 @@ timer_display_check:
 
 	// This is supposed to point to the next available slot in the OAM buffer.
 	lda.b #$18
-	sta.b $97
+	sta.b {ram_zp_oam_next}
 
 	// Use the double-return trick to execute the below code twice.
 	ldx.b #0
@@ -607,26 +608,26 @@ oam_hook_normal:
 	{reorg $3F, $FE0E}
 
 oam_hook_state_table:
-    db $00  // 00 = normal
-    db $00  // 01 = jumping/falling
-    db $00  // 02 = landing and sliding
-    db $00  // 03 = unknown; gets cleared immediately
-    db $00  // 04 = unknown and weird
-    db $00  // 05 = can't move (unknown reason)
-    db $00  // 06 = damage knockback
-    db $00  // 07 = can't move (death), does not reset level or animate
-    db $80  // 08 = teleport (completed level), gives weapon and everything!
-    db $00  // 09 = can't move (boss HP fills in)
-    db $80  // 0A = can't move (used for READY)
-    db $80  // 0B = frozen in place for level end.  when timer (0148) expires, changes to 08.
-    db $00  // 0C = damage and knockback together
-    db $80  // 0D = walk in place (horizontal transition or for cutscene after Cossack 4)
-    db $00  // 0E = can't move (cutscene)
-    db $80  // 0F = teleporter in wily 3
-    db $00  // 10 = instantly moves to a specific horizontal position
-    db $80  // 11 = teleport (balloon/wire), ports to current stage's first midpoint
-    db $80  // 12 = walk in place (after final hit on Wily capsule)
-    db $00  // 13 = teleport (completed wily 4), plays ending, but music stays on
+	db $00  // 00 = normal
+	db $00  // 01 = jumping/falling
+	db $00  // 02 = landing and sliding
+	db $00  // 03 = unknown; gets cleared immediately
+	db $00  // 04 = unknown and weird
+	db $00  // 05 = can't move (unknown reason)
+	db $00  // 06 = damage knockback
+	db $00  // 07 = can't move (death), does not reset level or animate
+	db $80  // 08 = teleport (completed level), gives weapon and everything!
+	db $00  // 09 = can't move (boss HP fills in)
+	db $80  // 0A = can't move (used for READY)
+	db $80  // 0B = frozen in place for level end.  when timer (0148) expires, changes to 08.
+	db $00  // 0C = damage and knockback together
+	db $80  // 0D = walk in place (horizontal transition or for cutscene after Cossack 4)
+	db $00  // 0E = can't move (cutscene)
+	db $80  // 0F = teleporter in wily 3
+	db $00  // 10 = instantly moves to a specific horizontal position
+	db $80  // 11 = teleport (balloon/wire), ports to current stage's first midpoint
+	db $80  // 12 = walk in place (after final hit on Wily capsule)
+	db $00  // 13 = teleport (completed wily 4), plays ending, but music stays on
 
 oam_hook_transition:
 	// Set transition display flag - use original sprite table.
@@ -680,8 +681,19 @@ drop_item_hook:
 
 	// Because we just deleted a giant function, we can use the rest of its space.
 
-	// Hook the code to load a background.
-show_screen_hook:
+	// Hook the code to load a background after the original code has faded
+	// out and cleared OAM, but before uploading to CHR-RAM.
+show_screen_hook_pre_upload:
+	// Set normal CHR-RAM mode.  We might get here with CHR-ROM enabled.
+	lda.b #3
+	ldx.b #$45
+	sta.w $8000
+	stx.w $8001
+	// We replaced a "jsr coroutine_yield" with a jsr, so jump there.
+	jmp {rom_coroutine_yield}
+
+	// Hook the code to load a background after the main load.
+show_screen_hook_post_upload:
 	// Loading title screen?
 	lda.b $10
 	cmp.b #1
@@ -902,8 +914,12 @@ teleport_in_hook:
 
 // Hook the code to load the stage select background.
 {savepc}
+	// Hooks the coroutine_yield after fadeout and OAM clear.
+	{reorg $39, $8492}
+	jsr show_screen_hook_pre_upload
+	// Hooks following the original code's upload to VRAM.
 	{reorg $39, $84C9}
-	jsr show_screen_hook
+	jsr show_screen_hook_post_upload
 {loadpc}
 
 
@@ -939,7 +955,7 @@ teleport_in_hook:
 	nop
 	nop
 	nop
-	{warnpc $876F}
+	{exactpc $876F}
 {loadpc}
 
 
