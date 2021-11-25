@@ -5,7 +5,7 @@ It also times each section of the game so that you can see how you're doing.
 
 ![Title Screen](images/title.png) ![Stage Select](images/select_main.png) ![Castle Stage Select](images/select_castle.png)
 
-![Timer Example](images/title_example.png) ![Timer Example 2](images/title_cossack4.png)
+![Timer Example](images/timer_example.png) ![Timer Example 2](images/timer_cossack4.png)
 
 ## How to Install
 Apply the patch Rockman4Practice_v2.0.ips from a "Release" to a copy of a Rockman 4 (J) ROM file.
@@ -24,7 +24,7 @@ Apply the patch Rockman4Practice_v2.0.ips from a "Release" to a copy of a Rockma
    1. Toad Man
  * Choose "COSSACK & WILY" in the center to select a castle level.
  * Level exit: bring up the pause menu and press SELECT.
- * Completing Wily 4 returns to stage select instead of playing the ending.
+ * Completing a castle stage returns you to stage select.
  * Press SELECT on the stage select screen to choose whether to begin levels at the start, at the midpoint, or in the corridor before the boss.
  * Press B on the stage select screen to disable or re-enable item drops from enemies.
  * Stage and castle intros are deleted.
