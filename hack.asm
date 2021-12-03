@@ -1337,11 +1337,25 @@ pause_screen_hook:
 	lda.b {ram_zp_controller1_new}
 	and.b #$20
 	beq .not_select
-	// Trigger a stage exit.
+	
+	// Trigger a stage exit with a timer showing.
 	lda.b #$FF
 	sta.w {sprite_tile_select}
+	// Flag that state 08 is already started (to make it exit quickly).
+	lda.b #$32
+	sta.w $0558
+	// Flag that Rockman has already started teleporting up though he hasn't.
+	lda.b #$FF
+	sta.w $0390
+	// Set countdown timer to 1 frame.
+	lda.b #$01
+	sta.w $0133
+	lda.b #$00
+	sta.w $0134
+	// 08 = Stage exit state.
 	lda.b #$08
-	bne .yes_select
+	bne .yes_select  // branch always
+
 .not_select:
 	// Deleted code.
 	cpx.b #$07

@@ -94,7 +94,7 @@ Free space in ROM (larger than 256 bytes):
      10 = instantly moves to a specific horizontal position
      11 = teleport (balloon/wire), ports to current stage's first midpoint
      12 = walk in place (after final hit on Wily capsule)
-     13 = teleport (completed wily 4), plays ending, but music stays on
+     13 = teleport (completed wily 4), plays ending, but music stays on.  Same handler as state 08.
 0097 = next available slot in OAM
 00A1 = lives
 00A2 = E-tanks
@@ -121,6 +121,8 @@ Free space in ROM (larger than 256 bytes):
 0148 = countdown timer before stage exit after defeating boss
 0330 = Rockman's X coordinate (or a copy)
 04F8 = countdown timer after beating Cossack 4 machine until Blues teleports in with Kalinka
+0540 = frame cycle high?  (counts 00...0A cyclically by whenever 0570 resets to 00)
+0570 = frame cycle low?  (counts 00...08 cyclically by frame)
 0600 = palette shadow
 0620 = palette shadow 2???
 0780 = VRAM write request buffer
