@@ -782,6 +782,23 @@ show_screen_hook_post_upload:
 	beq .copy_outer_loop
 
 .copy_done:
+	// Overwrite DROPS: "ON" with "OFF" if disabled.
+	lda.w {drop_disable}
+	beq .drops_are_on
+	lda.b #$205B >> 8
+	sta.w $2006
+	ldx.b #$205B & $FF
+	stx.w $2006
+	lda.b #$85     // 'F'
+	sta.w $2007
+	sta.w $2007
+	ldy.b #$285B >> 8
+	sty.w $2006
+	stx.w $2006
+	sta.w $2007
+	sta.w $2007
+.drops_are_on:
+	
 	// While we're here, clear out the completed stages list.
 	lda.b #$00
 	sta.b {ram_zp_completed_stages}
@@ -859,6 +876,12 @@ show_screen_hook_post_upload:
 	dw $23DE, .beta_marker
 	// End of table.
 	db $FF
+
+.copy_tables_end:
+if .copy_tables_end - .copy_table_base > $100
+	warning "copy table too large"
+endif
+
 .practice:
 	db $89, $9F, $88, $6C, $9E, $AF, $6C, $AC, $00
 	db $AC, $AA, $AF, $9E, $AF, $8A, $BA
@@ -1490,7 +1513,7 @@ tilemap_andwily_name:
 .end:
 
 
-// Code to update options on the title screen.
+// Code to update options on the stage select screen.
 do_options_update:
 	// Select pressed?
 	lda.b {ram_zp_controller1_new}
